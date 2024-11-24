@@ -1,9 +1,7 @@
 use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, split, ReadHalf, WriteHalf};
 use dotenvy::dotenv;
 use std::env;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::Mutex;
-use std::sync::Arc;
 
 fn load_env() -> (String, u16, u16) {
     match dotenv() {
@@ -27,43 +25,28 @@ fn load_env() -> (String, u16, u16) {
     return (host, client_port.parse::<u16>().unwrap(), server_port.parse::<u16>().unwrap());
 }
 
-async fn handle_connection(server_stream: Arc<Mutex<Option<TcpStream>>>, client_stream: Arc<Mutex<Option<TcpStream>>>) {
-    println!("Handling connections...");
-    let mut server_stream_lock = server_stream.lock().await;
-    let mut client_stream_lock = client_stream.lock().await;
-
-    if let Some(ref mut server_conn) = *server_stream_lock {
-        println!("Server connection established");
-        let mut buffer = [0u8; 512];
-
-        while let Ok(bytes_read) = server_conn.read(&mut buffer).await {
-            if bytes_read == 0 { break; }
-            println!("Received {} bytes from server: {:?}", bytes_read, &buffer[..bytes_read]);
-            if let Some(ref mut client_conn) = *client_stream_lock {
-                let _ = client_conn.write_all(&buffer[..bytes_read]).await;
+async fn read_write(mut read_stream: ReadHalf<TcpStream>, mut write_stream: WriteHalf<TcpStream>) {
+    let mut buffer = [0u8; 512];
+    loop {
+        match read_stream.read(&mut buffer).await {
+            Ok(0) => break,
+            Err(e) => { println!("Failed to read from stream: {}", e); break; }
+            Ok(n) => {
+                let _ = write_stream.write_all(&buffer[..n]).await;
             }
         }
-
-        println!("Connection closed by server.");
     }
 }
 
-async fn server_listener_process(listener: TcpListener, server_stream: Arc<Mutex<Option<TcpStream>>>, client_stream: Arc<Mutex<Option<TcpStream>>>) {
-    let (stream, _) = listener.accept().await.unwrap();
-    {
-        let mut stream_lock = server_stream.lock().await;
-        *stream_lock = Some(stream);
-    }
-    handle_connection(server_stream, client_stream).await;
-}
+async fn handle_connection(server_stream: TcpStream, client_stream: TcpStream) {
+    let (client_read, client_write) = split(client_stream);
+    let (server_read, server_write) = split(server_stream);
 
-async fn client_listener_process(listener: TcpListener, server_stream: Arc<Mutex<Option<TcpStream>>>, client_stream: Arc<Mutex<Option<TcpStream>>>) {
-    let (stream, _) = listener.accept().await.unwrap();
-    {
-        let mut stream_lock = client_stream.lock().await;
-        *stream_lock = Some(stream);
-    }
-    handle_connection(server_stream, client_stream).await;
+    let client_to_server = read_write(client_read, server_write);
+    let server_to_client = read_write(server_read, client_write);
+
+    tokio::join!(client_to_server, server_to_client);
+    println!("Connection completed!");
 }
 
 #[tokio::main]
@@ -75,13 +58,12 @@ async fn main() -> std::io::Result<()> {
     let client_listener = TcpListener::bind(format!("{}:{}", host, client_port)).await.unwrap();
     println!("Relay listening on {}:{} for client", host, client_port);
 
-    let server_stream: Arc<Mutex<Option<TcpStream>>> = Arc::new(Mutex::new(None));
-    let client_stream: Arc<Mutex<Option<TcpStream>>> = Arc::new(Mutex::new(None));
+    let (server_stream, _) = server_listener.accept().await.unwrap();
+    println!("Server connected!");
+    let (client_stream, _) = client_listener.accept().await.unwrap();
 
-    let server_func = server_listener_process(server_listener, server_stream.clone(), client_stream.clone());
-    let client_func = client_listener_process(client_listener, server_stream.clone(), client_stream.clone());
-
-    let _ = tokio::join!(server_func, client_func);
+    println!("Connection established!");
+    handle_connection(server_stream, client_stream).await;
 
     Ok(())
 }
