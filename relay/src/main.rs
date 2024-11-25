@@ -6,6 +6,7 @@ use dotenvy::dotenv;
 use std::env;
 use rand::Rng;
 use sha2::{Sha256, Digest};
+use base64::{Engine, engine::general_purpose};
 
 fn generate_random_nonce() -> [u8; 12] {
     let mut rng = rand::thread_rng();
@@ -77,11 +78,16 @@ async fn handle_connection(server_stream: TcpStream, client_stream: TcpStream, s
 }
 
 async fn server_connect(listener: TcpListener, secret: String) -> std::io::Result<(TcpStream, [u8; 32], [u8; 12])> {
-    let (stream, _) = listener.accept().await.unwrap();
+    let (mut stream, _) = listener.accept().await.unwrap();
     
-    // Generate Random Nonce - TODO
-    // let nonce: [u8; 12] = generate_random_nonce();
-    let nonce = [0x0; 12]; // Temporarily Static
+    // Generate Random Nonce
+    let nonce: [u8; 12] = generate_random_nonce();
+    // Encode the Nonce
+    let engine = general_purpose::STANDARD;
+    let base64_nonce = engine.encode(nonce);
+    // Send the Nonce
+    stream.write(base64_nonce.as_bytes()).await?;
+    stream.write(b"\r\n").await?;
     // Parse secret
     let secret: [u8; 32] = generate_secret_from_string(secret);
 
@@ -97,7 +103,6 @@ async fn main() -> std::io::Result<()> {
     let client_listener = TcpListener::bind(format!("{}:{}", host, client_port)).await.unwrap();
     println!("Relay listening on {}:{} for client", host, client_port);
 
-    // let (server_stream, _) = server_listener.accept().await.unwrap();
     let (server_stream, secret, nonce) = server_connect(server_listener, secret).await.unwrap();
     println!("Server connected!");
     let (client_stream, _) = client_listener.accept().await.unwrap();

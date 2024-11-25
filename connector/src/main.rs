@@ -1,10 +1,11 @@
 use tokio::net::TcpStream;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, split, ReadHalf, WriteHalf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, split, ReadHalf, WriteHalf, AsyncBufReadExt, BufReader};
 use dotenvy::dotenv;
 use std::env;
 use sha2::{Sha256, Digest};
 use chacha20::ChaCha20;
 use chacha20::cipher::{KeyIvInit, StreamCipher};
+use base64::{Engine, engine::general_purpose};
 
 fn generate_secret_from_string(secret_str: String) -> [u8; 32] {
     let mut hasher = Sha256::new();
@@ -73,10 +74,23 @@ async fn handle_connection(relay_stream: TcpStream, server_stream: TcpStream, se
 }
 
 async fn relay_connect(host: String, port: u16, secret: String) -> std::io::Result<(TcpStream, [u8; 32], [u8; 12])> {
-    let stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
+    let mut stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
     
-    // Get the Generated Nonce - TODO
-    let nonce = [0x0; 12]; // Temporarily Static
+    // Get the Generated Nonce
+    let mut reader = BufReader::new(&mut stream);
+
+    // Read the first line
+    let mut base64_nonce = String::new();
+    if reader.read_line(&mut base64_nonce).await? > 0 {
+        base64_nonce = base64_nonce.trim_end().to_string();
+        println!("Nonce exchange completed!");
+    } else {
+        panic!("No nonce received.");
+    }
+    
+    // Decode base64 encoded nonce
+    let engine = general_purpose::STANDARD;
+    let nonce: [u8; 12] = engine.decode(base64_nonce).unwrap().try_into().unwrap();
     
     // Parse secret
     let secret = generate_secret_from_string(secret);
