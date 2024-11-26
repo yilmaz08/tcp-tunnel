@@ -1,7 +1,7 @@
 use chacha20::ChaCha20;
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, split, ReadHalf, WriteHalf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, split, ReadHalf, WriteHalf, AsyncBufReadExt, BufReader};
 use dotenvy::dotenv;
 use std::env;
 use rand::Rng;
@@ -90,6 +90,22 @@ async fn server_connect(listener: TcpListener, secret: String) -> std::io::Resul
     stream.write(b"\r\n").await?;
     // Parse secret
     let secret: [u8; 32] = generate_secret_from_string(secret);
+    let mut cipher: ChaCha20 = ChaCha20::new(&secret.into(), &nonce.into());
+
+    // Expect `encoded(encrypted("AUTH"))\r\n` for verification
+    let mut reader = BufReader::new(&mut stream);
+    let mut base64_enc_message = String::new();
+    if reader.read_line(&mut base64_enc_message).await? > 0 {
+        let engine = general_purpose::STANDARD;
+        let mut message: Vec<u8> = engine.decode(base64_enc_message.trim_end()).unwrap();
+        cipher.apply_keystream(&mut message);
+        if b"AUTH".to_vec() != message {
+            panic!("Unauthorized");
+        }
+
+    } else {
+        panic!("Nothing received");
+    }
 
     return Ok((stream, secret, nonce));
 }

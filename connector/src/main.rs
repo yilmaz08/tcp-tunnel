@@ -95,6 +95,16 @@ async fn relay_connect(host: String, port: u16, secret: String) -> std::io::Resu
     // Parse secret
     let secret = generate_secret_from_string(secret);
 
+    // Create new cipher
+    let mut cipher = ChaCha20::new(&secret.into(), &nonce.into());
+
+    // Send `encoded(encrypted("AUTH"))\r\n` for verification
+    let mut message: Vec<u8> = b"AUTH".to_vec();
+    cipher.apply_keystream(&mut message);
+    let encoded_message = engine.encode(&message);
+    stream.write(encoded_message.as_bytes()).await?;
+    stream.write(b"\r\n").await?;
+
     return Ok((stream, secret, nonce));
 }
 
