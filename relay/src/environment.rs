@@ -1,6 +1,8 @@
 use std::env;
 use dotenvy::dotenv;
+use crate::encryption::generate_secret_from_string;
 
+#[derive(Clone)]
 pub struct Environment {
     pub host: String,
     pub server_port: u16,
@@ -16,7 +18,7 @@ impl Environment {
         }
         Self {
             secret: match env::var("SECRET") {
-                Ok(val) => crate::encryption::generate_secret_from_string(val),
+                Ok(val) => generate_secret_from_string(val),
                 Err(_) => panic!("no SECRET found")
             },
             host: match env::var("HOST") {
