@@ -2,52 +2,10 @@ use chacha20::ChaCha20;
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, split, ReadHalf, WriteHalf, AsyncBufReadExt, BufReader};
-use dotenvy::dotenv;
-use std::env;
-use rand::Rng;
-use sha2::{Sha256, Digest};
 use base64::{Engine, engine::general_purpose};
 
-fn generate_random_nonce() -> [u8; 12] {
-    let mut rng = rand::thread_rng();
-    let mut nonce = [0u8; 12];
-    rng.fill(&mut nonce);
-    nonce
-}
-
-fn generate_secret_from_string(secret_str: String) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(secret_str);
-    let mut secret = [0u8; 32];
-    secret.copy_from_slice(&hasher.finalize());
-    secret
-}
-
-fn load_env() -> (String, u16, u16, String) {
-    match dotenv() {
-        Err(_) => panic!("dotenv couldn't be loaded!"),
-        Ok(_) => println!("dotenv is loaded")
-    }
-
-    let secret = match env::var("SECRET") {
-        Ok(val) => val,
-        Err(_) => panic!("no SECRET found")
-    };
-    let host = match env::var("HOST") {
-        Ok(val) => val,
-        Err(_) => panic!("couldn't find HOST in dotenv")
-    };
-    let client_port = match env::var("CLIENT_PORT") {
-        Ok(val) => val,
-        Err(_) => panic!("couldn't find CLIENT_PORT in dotenv")
-    };
-    let server_port = match env::var("SERVER_PORT") {
-        Ok(val) => val,
-        Err(_) => panic!("couldn't find SERVER_PORT in dotenv")
-    };
-
-    return (host, client_port.parse::<u16>().unwrap(), server_port.parse::<u16>().unwrap(), secret);
-}
+mod encryption;
+mod environment;
 
 async fn read_write(mut read_stream: ReadHalf<TcpStream>, mut write_stream: WriteHalf<TcpStream>, mut cipher: ChaCha20) {
     let mut buffer = [0u8; 512];
@@ -77,11 +35,11 @@ async fn handle_connection(server_stream: TcpStream, client_stream: TcpStream, s
     println!("Connection completed!");
 }
 
-async fn server_connect(listener: TcpListener, secret: String) -> std::io::Result<(TcpStream, [u8; 32], [u8; 12])> {
+async fn server_connect(listener: TcpListener, secret: [u8; 32]) -> std::io::Result<(TcpStream, [u8; 12])> {
     let (mut stream, _) = listener.accept().await.unwrap();
     
     // Generate Random Nonce
-    let nonce: [u8; 12] = generate_random_nonce();
+    let nonce: [u8; 12] = encryption::generate_random_nonce();
     // Encode the Nonce
     let engine = general_purpose::STANDARD;
     let base64_nonce = engine.encode(nonce);
@@ -89,7 +47,6 @@ async fn server_connect(listener: TcpListener, secret: String) -> std::io::Resul
     stream.write(base64_nonce.as_bytes()).await?;
     stream.write(b"\r\n").await?;
     // Parse secret
-    let secret: [u8; 32] = generate_secret_from_string(secret);
     let mut cipher: ChaCha20 = ChaCha20::new(&secret.into(), &nonce.into());
 
     // Expect `encoded(encrypted("AUTH"))\r\n` for verification
@@ -107,24 +64,24 @@ async fn server_connect(listener: TcpListener, secret: String) -> std::io::Resul
         panic!("Nothing received");
     }
 
-    return Ok((stream, secret, nonce));
+    return Ok((stream, nonce));
 }
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let (host, client_port, server_port, secret) = load_env();
+    let env: environment::Environment = environment::Environment::new();
 
-    let server_listener = TcpListener::bind(format!("{}:{}", host, server_port)).await.unwrap();
-    println!("Relay listening on {}:{} for server", host, server_port);
-    let client_listener = TcpListener::bind(format!("{}:{}", host, client_port)).await.unwrap();
-    println!("Relay listening on {}:{} for client", host, client_port);
+    let server_listener = TcpListener::bind(format!("{}:{}", env.host, env.server_port)).await.unwrap();
+    println!("Relay listening on {}:{} for server", env.host, env.server_port);
+    let client_listener = TcpListener::bind(format!("{}:{}", env.host, env.client_port)).await.unwrap();
+    println!("Relay listening on {}:{} for client", env.host, env.client_port);
 
-    let (server_stream, secret, nonce) = server_connect(server_listener, secret).await.unwrap();
+    let (server_stream, nonce) = server_connect(server_listener, env.secret).await.unwrap();
     println!("Server connected!");
     let (client_stream, _) = client_listener.accept().await.unwrap();
 
     println!("Connection established!");
-    handle_connection(server_stream, client_stream, secret, nonce).await;
+    handle_connection(server_stream, client_stream, env.secret, nonce).await;
 
     Ok(())
 }
