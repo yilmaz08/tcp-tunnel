@@ -1,7 +1,7 @@
 # TCP Tunnel
 
 ## To-Do
-- [ ] Stream cipher encryption
+- [x] Stream cipher encryption
 - [ ] Handle multiple streams
 - [ ] Detailed logging
 - [ ] UDP over TCP Tunnel
