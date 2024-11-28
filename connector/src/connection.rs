@@ -7,34 +7,36 @@ use anyhow::Result;
 use crate::environment::Environment;
 
 pub struct Connection {
+    pub index: u16,
     pub nonce: [u8; 12],
     pub env: Environment
 }
 
 impl Connection {
-    pub fn new(env: Environment) -> Self {
+    pub fn new(index: u16, env: Environment) -> Self {
         Self {
+            index,
             nonce: [0x0; 12],
             env
         }
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        println!("Connecting to relay...");
+        println!("#{} Connecting to relay...", self.index);
         let relay_stream = Connection::create_stream(self.env.relay_host.clone(), self.env.relay_port.clone()).await;
-        println!("Connected to relay! Authenticating...");
+        println!("#{} Connected to relay! Authenticating...", self.index);
         let relay_stream = match self.relay_connect(relay_stream).await {
             Ok(val) => { println!("Authenticated!"); val },
             Err(e) => { println!("Drop: {:?}", e); return Ok(()); }
         };
-        println!("Waiting...");
+        println!("#{} Waiting...", self.index);
         let relay_stream = match Connection::wait_starting_byte(relay_stream).await {
             Ok(stream) => { println!("Received starting byte!"); stream },
             Err(e) => return Err(e)
         };
-        println!("Connecting to server...");
+        println!("#{} Connecting to server...", self.index);
         let server_stream = Connection::create_stream(self.env.server_host.clone(), self.env.server_port.clone()).await;
-        println!("Connected to server! Starting data stream...");
+        println!("#{} Connected to server! Starting data stream...", self.index);
         return self.start_data_stream(relay_stream, server_stream).await;
     }
 

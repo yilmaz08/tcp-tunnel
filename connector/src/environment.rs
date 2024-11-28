@@ -2,13 +2,14 @@ use std::env;
 use dotenvy::dotenv;
 use crate::encryption::generate_secret_from_string;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Environment {
     pub server_host: String,
     pub relay_host: String,
     pub server_port: u16,
     pub relay_port: u16,
-    pub secret: [u8; 32]
+    pub secret: [u8; 32],
+    pub connections: u16
 }
 
 impl Environment {
@@ -37,6 +38,10 @@ impl Environment {
             server_port: match env::var("SERVER_PORT") {
                 Ok(val) => val.parse::<u16>().unwrap(),
                 Err(_) => panic!("couldn't find SERVER_PORT in dotenv")
+            },
+            connections: match env::var("CONNECTIONS") {
+                Ok(val) => val.parse::<u16>().unwrap(),
+                Err(_) => panic!("couldn't find CONNECTIONS in dotenv")
             }
         }
     }
