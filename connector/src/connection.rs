@@ -27,6 +27,11 @@ impl Connection {
             Ok(val) => { println!("Authenticated!"); val },
             Err(e) => { println!("Drop: {:?}", e); return Ok(()); }
         };
+        println!("Waiting...");
+        let relay_stream = match Connection::wait_starting_byte(relay_stream).await {
+            Ok(stream) => { println!("Received starting byte!"); stream },
+            Err(e) => return Err(e)
+        };
         println!("Connecting to server...");
         let server_stream = Connection::create_stream(self.env.server_host.clone(), self.env.server_port.clone()).await;
         println!("Connected to server! Starting data stream...");
@@ -50,6 +55,19 @@ impl Connection {
         tokio::join!(relay_to_server, server_to_relay);
         println!("Connection completed!");
         Ok(())
+    }
+
+    async fn wait_starting_byte(mut stream: TcpStream) -> Result<TcpStream> {
+        let mut buffer = [0x0; 1];
+        loop {
+            match stream.read(&mut buffer).await {
+                Ok(0) => return Err(anyhow::Error::msg("Connection closed!")),
+                Err(_) => return Err(anyhow::Error::msg("Failed to read from stream!")),
+                Ok(_) => {
+                    if buffer[0] != 0u8 { return Ok(stream); }
+                }
+            }
+        }
     }
 
     async fn read_write(mut read_stream: ReadHalf<TcpStream>, mut write_stream: WriteHalf<TcpStream>, mut cipher: ChaCha20) {
@@ -76,7 +94,7 @@ impl Connection {
             base64_nonce = base64_nonce.trim_end().to_string();
             println!("- Nonce exchange completed!");
         } else {
-            panic!("- No nonce received.");
+            return Err(anyhow::Error::msg("- No nonce received"));
         }
         // Decode base64 encoded nonce
         let engine = general_purpose::STANDARD;

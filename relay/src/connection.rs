@@ -30,13 +30,15 @@ impl Connection {
         println!("Listening for server...");
         let (server_stream, _) = Connection::get_stream(self.server_listener.clone()).await;
         println!("Server connected! Authenticating...");
-        let server_stream = match self.server_connect(server_stream).await {
+        let mut server_stream = match self.server_connect(server_stream).await {
             Ok(val) => { println!("Authenticated!"); val },
             Err(e) => { println!("Drop: {:?}", e); return Ok(()); }
         };
         println!("Listening for client...");
         let (client_stream, _) = Connection::get_stream(self.client_listener.clone()).await;
         println!("Client connected! Starting data stream...");
+        server_stream.write(&[1u8; 1]).await.unwrap(); // Send starting byte
+
         return self.start_data_stream(server_stream, client_stream).await;
     }
 
@@ -61,7 +63,6 @@ impl Connection {
         let mut reader = BufReader::new(&mut stream);
         let mut base64_enc_message = String::new();
         if reader.read_line(&mut base64_enc_message).await.unwrap() > 0 {
-            let engine = general_purpose::STANDARD;
             let mut message: Vec<u8> = engine.decode(base64_enc_message.trim_end()).unwrap();
             cipher.apply_keystream(&mut message);
             if b"AUTH".to_vec() != message {
