@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use crate::environment::Environment;
 
 pub struct Connection {
+    pub index: u16,
     pub nonce: [u8; 12],
     pub env: Environment,
     pub server_listener: Arc<Mutex<TcpListener>>,
@@ -17,9 +18,11 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(env: Environment, server_listener: Arc<Mutex<TcpListener>>, client_listener: Arc<Mutex<TcpListener>>) -> Self {
+    pub fn new(index: u16, env: Environment, server_listener: Arc<Mutex<TcpListener>>, client_listener: Arc<Mutex<TcpListener>>) -> Self {
+        println!("Connection with index {} constructed!", index);
         Self {
             nonce: crate::encryption::generate_random_nonce(),
+            index,
             env,
             server_listener,
             client_listener
@@ -27,16 +30,16 @@ impl Connection {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        println!("Listening for server...");
+        println!("#{} Listening for server...", self.index);
         let (server_stream, _) = Connection::get_stream(self.server_listener.clone()).await;
-        println!("Server connected! Authenticating...");
+        println!("#{} Server connected! Authenticating...", self.index);
         let mut server_stream = match self.server_connect(server_stream).await {
             Ok(val) => { println!("Authenticated!"); val },
             Err(e) => { println!("Drop: {:?}", e); return Ok(()); }
         };
-        println!("Listening for client...");
+        println!("#{} Listening for client...", self.index);
         let (client_stream, _) = Connection::get_stream(self.client_listener.clone()).await;
-        println!("Client connected! Starting data stream...");
+        println!("#{} Client connected! Starting data stream...", self.index);
         server_stream.write(&[1u8; 1]).await.unwrap(); // Send starting byte
 
         return self.start_data_stream(server_stream, client_stream).await;
