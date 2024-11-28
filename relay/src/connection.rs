@@ -1,6 +1,7 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt, split, ReadHalf, WriteHalf, AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
+use tokio::task;
 use chacha20::ChaCha20;
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use base64::{Engine, engine::general_purpose};
@@ -74,7 +75,6 @@ impl Connection {
         } else {
             return Err(anyhow::Error::msg("Nothing received"));
         }
-
         return Ok(stream);
     }
 
@@ -85,10 +85,20 @@ impl Connection {
         let client_cipher = ChaCha20::new(&self.env.secret.into(), &self.nonce.into());
         let server_cipher = ChaCha20::new(&self.env.secret.into(), &self.nonce.into());
 
-        let client_to_server = Self::read_write(client_read, server_write, client_cipher);
-        let server_to_client = Self::read_write(server_read, client_write, server_cipher);
+        let mut client_to_server = task::spawn(Self::read_write(client_read, server_write, client_cipher));
+        let mut server_to_client = task::spawn(Self::read_write(server_read, client_write, server_cipher));
 
-        tokio::join!(client_to_server, server_to_client);
+        tokio::select! {
+            _ = &mut client_to_server => { 
+                println!("Client to server ended!");
+                server_to_client.abort();
+            },
+            _ = &mut server_to_client => { 
+                println!("Server to client ended!"); 
+                client_to_server.abort();
+            }
+        }
+
         println!("Connection completed!");
         Ok(())
     }

@@ -1,4 +1,5 @@
 use tokio::net::TcpStream;
+use tokio::task;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, split, ReadHalf, WriteHalf, AsyncBufReadExt, BufReader};
 use chacha20::ChaCha20;
 use chacha20::cipher::{KeyIvInit, StreamCipher};
@@ -51,10 +52,20 @@ impl Connection {
         let relay_cipher = ChaCha20::new(&self.env.secret.into(), &self.nonce.into());
         let server_cipher = ChaCha20::new(&self.env.secret.into(), &self.nonce.into());
 
-        let relay_to_server = Connection::read_write(relay_read, server_write, relay_cipher);
-        let server_to_relay = Connection::read_write(server_read, relay_write, server_cipher);
+        let mut relay_to_server = task::spawn(Connection::read_write(relay_read, server_write, relay_cipher));
+        let mut server_to_relay = task::spawn(Connection::read_write(server_read, relay_write, server_cipher));
 
-        tokio::join!(relay_to_server, server_to_relay);
+        tokio::select! {
+            _ = &mut server_to_relay => {
+                println!("Server to relay ended!");
+                relay_to_server.abort();
+            },
+            _ = &mut relay_to_server => {
+                println!("Relay to server ended!");
+                server_to_relay.abort();
+            }
+        }
+
         println!("Connection completed!");
         Ok(())
     }
