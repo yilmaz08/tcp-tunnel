@@ -1,4 +1,5 @@
 use tokio::runtime::Runtime;
+use log::info;
 
 mod environment;
 mod encryption;
@@ -6,7 +7,12 @@ mod connection;
 
 #[tokio::main]
 async fn main() {
-    let env: environment::Environment = environment::Environment::new();
+    let env = match environment::Environment::new() {
+        Some(val) => val,
+        None => return
+    };
+
+    env_logger::builder().filter_level(env.log_level).init();
 
     let rt = Runtime::new().unwrap();
 
@@ -16,7 +22,6 @@ async fn main() {
             loop {
                 let mut conn: connection::Connection = connection::Connection::new(index, env.clone());
                 let _ = conn.start().await;
-                println!("#{:?} Ended", index);
             }
         });
     }
