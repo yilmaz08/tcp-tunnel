@@ -1,5 +1,6 @@
 use std::env;
 use dotenvy::dotenv;
+use log::LevelFilter;
 use crate::encryption::generate_secret_from_string;
 
 #[derive(Clone, Debug)]
@@ -9,16 +10,17 @@ pub struct Environment {
     pub server_port: u16,
     pub relay_port: u16,
     pub secret: [u8; 32],
-    pub connections: u16
+    pub connections: u16,
+    pub log_level: LevelFilter
 }
 
 impl Environment {
-    pub fn new() -> Self {
+    pub fn new() -> Option<Self> {
         match dotenv() {
             Err(_) => panic!("dotenv couldn't be loaded!"),
-            Ok(_) => println!("dotenv is loaded")
+            Ok(_) => {}
         }
-        Self {
+        Some(Self {
             secret: match env::var("SECRET") {
                 Ok(val) => generate_secret_from_string(val),
                 Err(_) => panic!("no SECRET found")
@@ -42,7 +44,21 @@ impl Environment {
             connections: match env::var("CONNECTIONS") {
                 Ok(val) => val.parse::<u16>().unwrap(),
                 Err(_) => panic!("couldn't find CONNECTIONS in dotenv")
+            },
+            log_level: match env::var("LOG_LEVEL") {
+                Ok(val) => {
+                    match val.parse::<u16>() {
+                        Ok(0) => LevelFilter::Off,
+                        Ok(1) => LevelFilter::Error,
+                        Ok(2) => LevelFilter::Warn,
+                        Ok(3) => LevelFilter::Info,
+                        Ok(4) => LevelFilter::Debug,
+                        Ok(5) => LevelFilter::Trace,
+                        _ => panic!("couldn't parse LOG_LEVEL")
+                    }
+                },
+                Err(_) => panic!("couldn't find LOG_LEVEL in dotenv")
             }
-        }
+        })
     }
 }

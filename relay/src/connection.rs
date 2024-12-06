@@ -9,39 +9,41 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::net::SocketAddr;
 use crate::environment::Environment;
+use log::{info, trace, error, debug};
 
 pub struct Connection {
-    pub index: u16,
-    pub nonce: [u8; 12],
-    pub env: Environment,
-    pub server_listener: Arc<Mutex<TcpListener>>,
-    pub client_listener: Arc<Mutex<TcpListener>>
+    nonce: [u8; 12],
+    env: Environment,
+    server_listener: Arc<Mutex<TcpListener>>,
+    client_listener: Arc<Mutex<TcpListener>>,
+    log_target: String
 }
 
 impl Connection {
     pub fn new(index: u16, env: Environment, server_listener: Arc<Mutex<TcpListener>>, client_listener: Arc<Mutex<TcpListener>>) -> Self {
-        println!("Connection with index {} constructed!", index);
-        Self {
+        let result = Self {
             nonce: crate::encryption::generate_random_nonce(),
-            index,
             env,
             server_listener,
-            client_listener
-        }
+            client_listener,
+            log_target: format!("conn #{}", index)
+        };
+        debug!(target: &result.log_target, "Connection constructed!");
+        return result;
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        println!("#{} Listening for server...", self.index);
+        debug!(target: &self.log_target, "Listening for server...");
         let (server_stream, _) = Connection::get_stream(self.server_listener.clone()).await;
-        println!("#{} Server connected! Authenticating...", self.index);
+        info!(target: &self.log_target, "Server connected!");
         let mut server_stream = match self.server_connect(server_stream).await {
-            Ok(val) => { println!("Authenticated!"); val },
-            Err(e) => { println!("Drop: {:?}", e); return Ok(()); }
+            Ok(val) => { debug!(target: &self.log_target, "Authenticated!"); val },
+            Err(e) => { debug!(target: &self.log_target, "Drop: {:?}", e); return Ok(()); }
         };
-        println!("#{} Listening for client...", self.index);
+        debug!(target: &self.log_target, "Listening for client...");
         let (client_stream, _) = Connection::get_stream(self.client_listener.clone()).await;
-        println!("#{} Client connected! Starting data stream...", self.index);
-        server_stream.write(&[1u8; 1]).await.unwrap(); // Send starting byte
+        info!(target: &self.log_target, "Client connected!");
+        server_stream.write_u8(1u8).await.unwrap(); // Send starting byte
 
         return self.start_data_stream(server_stream, client_stream).await;
     }
@@ -57,16 +59,20 @@ impl Connection {
         // Encode the Nonce
         let engine = general_purpose::STANDARD;
         let base64_nonce = engine.encode(self.nonce);
+        trace!(target: &self.log_target, "Encoded the nonce");
         // Send the Nonce
         stream.write(base64_nonce.as_bytes()).await?;
         stream.write(b"\r\n").await?;
+        debug!(target: &self.log_target, "Sent the nonce");
         // Parse secret
         let mut cipher: ChaCha20 = ChaCha20::new(&self.env.secret.into(), &self.nonce.into());
+        trace!(target: &self.log_target, "Cipher created");
 
         // Expect `encoded(encrypted("AUTH"))\r\n` for verification
         let mut reader = BufReader::new(&mut stream);
         let mut base64_enc_message = String::new();
         if reader.read_line(&mut base64_enc_message).await.unwrap() > 0 {
+            trace!(target: &self.log_target, "Found a line! Checking...");
             let mut message: Vec<u8> = engine.decode(base64_enc_message.trim_end()).unwrap();
             cipher.apply_keystream(&mut message);
             if b"AUTH".to_vec() != message {
@@ -79,27 +85,31 @@ impl Connection {
     }
 
     async fn start_data_stream(&mut self, server_stream: TcpStream, client_stream: TcpStream) -> Result<()> {
-        let (client_read, client_write) = split(server_stream);
-        let (server_read, server_write) = split(client_stream);
+        let (client_read, client_write) = split(client_stream);
+        let (server_read, server_write) = split(server_stream);
+        trace!(target: &self.log_target, "Streams splitted");
 
         let client_cipher = ChaCha20::new(&self.env.secret.into(), &self.nonce.into());
         let server_cipher = ChaCha20::new(&self.env.secret.into(), &self.nonce.into());
+        trace!(target: &self.log_target, "Ciphers created");
 
-        let mut client_to_server = task::spawn(Self::read_write(client_read, server_write, client_cipher));
-        let mut server_to_client = task::spawn(Self::read_write(server_read, client_write, server_cipher));
+        let mut client_to_server = task::spawn(Connection::read_write(client_read, server_write, client_cipher));
+        trace!(target: &self.log_target, "Client to server task spawned");
+        let mut server_to_client = task::spawn(Connection::read_write(server_read, client_write, server_cipher));
+        trace!(target: &self.log_target, "Server to client task spawned");
 
         tokio::select! {
             _ = &mut client_to_server => { 
-                println!("Client to server ended!");
+                debug!(target: &self.log_target, "Client to server ended!");
                 server_to_client.abort();
             },
             _ = &mut server_to_client => { 
-                println!("Server to client ended!"); 
+                debug!(target: &self.log_target, "Server to client ended!"); 
                 client_to_server.abort();
             }
         }
 
-        println!("Connection completed!");
+        info!(target: &self.log_target, "Connection completed!");
         Ok(())
     }
 
@@ -108,7 +118,7 @@ impl Connection {
         loop {
             match read_stream.read(&mut buffer).await {
                 Ok(0) => break,
-                Err(e) => { println!("Failed to read from stream: {}", e); break; }
+                Err(e) => { error!("Failed to read from stream: {}", e); break; }
                 Ok(n) => {
                     cipher.apply_keystream(&mut buffer);
                     let _ = write_stream.write_all(&buffer[..n]).await;

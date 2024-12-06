@@ -2,6 +2,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::runtime::Runtime;
 use std::sync::Arc;
+use log::info;
 
 mod encryption;
 mod environment;
@@ -9,12 +10,17 @@ mod connection;
 
 #[tokio::main]
 async fn main() {
-    let env: environment::Environment = environment::Environment::new();
+    let env = match environment::Environment::new() {
+        Some(val) => val,
+        None => return
+    };
 
-    let server_listener: Arc<Mutex<TcpListener>> = Arc::new(Mutex::new(TcpListener::bind(format!("{}:{}", env.host, env.server_port)).await.unwrap()));
-    println!("Server listener is set up on {}:{}", env.host, env.server_port);
-    let client_listener: Arc<Mutex<TcpListener>> = Arc::new(Mutex::new(TcpListener::bind(format!("{}:{}", env.host, env.client_port)).await.unwrap()));
-    println!("Client listener is set up on {}:{}", env.host, env.client_port);
+    env_logger::builder().filter_level(env.log_level).init();
+
+    let server_listener = Arc::new(Mutex::new(TcpListener::bind(format!("{}:{}", env.host, env.server_port)).await.unwrap()));
+    info!("Server listener is set up on {}:{}", env.host, env.server_port);
+    let client_listener = Arc::new(Mutex::new(TcpListener::bind(format!("{}:{}", env.host, env.client_port)).await.unwrap()));
+    info!("Client listener is set up on {}:{}", env.host, env.client_port);
 
     let rt = Runtime::new().unwrap();
 
@@ -24,9 +30,8 @@ async fn main() {
         let client_listener = client_listener.clone();
         rt.spawn(async move {
             loop {
-                let mut conn: connection::Connection = connection::Connection::new(index, env.clone(), server_listener.clone(), client_listener.clone());
+                let mut conn = connection::Connection::new(index, env.clone(), server_listener.clone(), client_listener.clone());
                 let _ = conn.start().await;
-                println!("#{:?} Ended", index);
             }
         });
     }
