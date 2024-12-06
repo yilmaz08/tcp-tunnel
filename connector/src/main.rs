@@ -1,5 +1,4 @@
 use tokio::runtime::Runtime;
-use log::info;
 
 mod environment;
 mod encryption;

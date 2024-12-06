@@ -43,7 +43,7 @@ impl Connection {
         debug!(target: &self.log_target, "Listening for client...");
         let (client_stream, _) = Connection::get_stream(self.client_listener.clone()).await;
         info!(target: &self.log_target, "Client connected!");
-        server_stream.write_u8(0x1).await.unwrap(); // Send starting byte
+        server_stream.write_u8(1u8).await.unwrap(); // Send starting byte
 
         return self.start_data_stream(server_stream, client_stream).await;
     }
@@ -59,11 +59,11 @@ impl Connection {
         // Encode the Nonce
         let engine = general_purpose::STANDARD;
         let base64_nonce = engine.encode(self.nonce);
-        trace!(target: &self.log_target, "Encoded the Nonce");
+        trace!(target: &self.log_target, "Encoded the nonce");
         // Send the Nonce
         stream.write(base64_nonce.as_bytes()).await?;
         stream.write(b"\r\n").await?;
-        debug!(target: &self.log_target, "Sent the Nonce");
+        debug!(target: &self.log_target, "Sent the nonce");
         // Parse secret
         let mut cipher: ChaCha20 = ChaCha20::new(&self.env.secret.into(), &self.nonce.into());
         trace!(target: &self.log_target, "Cipher created");

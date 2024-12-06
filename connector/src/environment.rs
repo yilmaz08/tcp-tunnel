@@ -18,7 +18,7 @@ impl Environment {
     pub fn new() -> Option<Self> {
         match dotenv() {
             Err(_) => panic!("dotenv couldn't be loaded!"),
-            Ok(_) => println!("dotenv is loaded")
+            Ok(_) => {}
         }
         Some(Self {
             secret: match env::var("SECRET") {

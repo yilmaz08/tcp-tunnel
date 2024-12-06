@@ -17,7 +17,7 @@ pub struct Connection {
 impl Connection {
     pub fn new(index: u16, env: Environment) -> Self {
         let result = Self {
-            nonce: [0x0; 12],
+            nonce: [0u8; 12],
             env,
             log_target: format!("conn #{}", index)
         };
@@ -30,7 +30,7 @@ impl Connection {
         let relay_stream = Connection::create_stream(self.env.relay_host.clone(), self.env.relay_port.clone()).await;
         info!(target: &self.log_target, "Connected to relay!");
         let relay_stream = match self.relay_connect(relay_stream).await {
-            Ok(val) => { debug!(target: &self.log_target, "Authenticated!"); val },
+            Ok(val) => val,
             Err(e) => { debug!(target: &self.log_target, "Drop: {:?}", e); return Ok(()); }
         };
         debug!(target: &self.log_target, "Waiting...");
@@ -78,7 +78,7 @@ impl Connection {
     }
 
     async fn wait_starting_byte(mut stream: TcpStream) -> Result<TcpStream> {
-        let mut buffer = [0x0; 1];
+        let mut buffer = [0u8; 1];
         loop {
             match stream.read(&mut buffer).await {
                 Ok(0) => return Err(anyhow::Error::msg("Connection closed!")),
