@@ -11,7 +11,8 @@ pub struct Environment {
     pub relay_port: u16,
     pub secret: [u8; 32],
     pub connections: u16,
-    pub log_level: LevelFilter
+    pub log_level: LevelFilter,
+    pub conn_protocol: bool
 }
 
 impl Environment {
@@ -58,6 +59,16 @@ impl Environment {
                     }
                 },
                 Err(_) => panic!("couldn't find LOG_LEVEL in dotenv")
+            },
+            conn_protocol: match env::var("CONN_PROTOCOL") {
+                Ok(val) => {
+                    let val = val.trim().to_lowercase();
+                    if val == "udp" { false } else if val == "tcp" { true } 
+                    else {
+                        panic!("Unknown protocol")
+                    }
+                },
+                Err(_) => panic!("couldn't find CONN_PROTOCOL in dotenv")
             }
         })
     }
