@@ -55,7 +55,7 @@ impl Connection {
         let result: TcpOrUdp = match self.env.conn_protocol {
             true => TcpOrUdp::Tcp(TcpStream::connect(format!("{}:{}", self.env.server_host, self.env.server_port)).await.unwrap()),
             false => {
-                let socket: UdpSocket = UdpSocket::bind(format!("{}:{}", self.env.server_host, 8008)).await.unwrap();
+                let socket: UdpSocket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
                 socket.connect(format!("{}:{}", self.env.server_host, self.env.server_port)).await.unwrap();
                 TcpOrUdp::Udp(socket)
             }
