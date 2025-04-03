@@ -5,8 +5,8 @@ use crate::encryption::generate_secret_from_string;
 
 #[derive(Clone, Debug)]
 pub struct Environment {
-    pub server_host: String,
-    pub relay_host: String,
+    pub server_ip: String,
+    pub relay_ip: String,
     pub server_port: u16,
     pub relay_port: u16,
     pub secret: [u8; 32],
@@ -25,15 +25,15 @@ impl Environment {
                 Ok(val) => generate_secret_from_string(val),
                 Err(_) => panic!("no SECRET found")
             },
-            server_host: match env::var("SERVER_HOST") {
+            server_ip: match env::var("SERVER_IP") {
                 Ok(val) => val,
-                Err(_) => panic!("couldn't find HOST in dotenv")
+                Err(_) => panic!("couldn't find SERVER_IP in dotenv")
             },
-            relay_host: match env::var("RELAY_HOST") {
+            relay_ip: match env::var("RELAY_IP") {
                 Ok(val) => val,
-                Err(_) => panic!("couldn't find HOST in dotenv")
+                Err(_) => panic!("couldn't find RELAY_IP in dotenv")
             },
-            relay_port: match env::var("RELAY_PORT") {
+            relay_port: match env::var("SHARED_PORT") {
                 Ok(val) => val.parse::<u16>().unwrap(),
                 Err(_) => panic!("couldn't find CLIENT_PORT in dotenv")
             },

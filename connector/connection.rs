@@ -27,7 +27,7 @@ impl Connection {
 
     pub async fn start(&mut self) -> Result<()> {
         debug!(target: &self.log_target, "Connecting to relay...");
-        let relay_stream = Connection::create_stream(self.env.relay_host.clone(), self.env.relay_port.clone()).await;
+        let relay_stream = Connection::create_stream(self.env.relay_ip.clone(), self.env.relay_port.clone()).await;
         info!(target: &self.log_target, "Connected to relay!");
         let relay_stream = match self.relay_connect(relay_stream).await {
             Ok(val) => val,
@@ -39,7 +39,7 @@ impl Connection {
             Err(e) => return Err(e)
         };
         debug!(target: &self.log_target, "Connecting to server...");
-        let server_stream = Connection::create_stream(self.env.server_host.clone(), self.env.server_port.clone()).await;
+        let server_stream = Connection::create_stream(self.env.server_ip.clone(), self.env.server_port.clone()).await;
         info!(target: &self.log_target, "Connected to server!");
         return self.start_data_stream(relay_stream, server_stream).await;
     }

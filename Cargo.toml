@@ -1,7 +1,16 @@
 [package]
-name = "relay"
+name = "tcp-tunnel"
 version = "0.1.0"
 edition = "2021"
+authors = ["Abdürrahim YILMAZ <ayilmaz@ayilmaz.xyz>"]
+
+[[bin]]
+name = "relay"
+path = "relay/main.rs"
+
+[[bin]]
+name = "connector"
+path = "connector/main.rs"
 
 [dependencies]
 anyhow = "1.0.93"

@@ -17,10 +17,10 @@ async fn main() {
 
     env_logger::builder().filter_level(env.log_level).init();
 
-    let server_listener = Arc::new(Mutex::new(TcpListener::bind(format!("{}:{}", env.host, env.server_port)).await.unwrap()));
-    info!("Server listener is set up on {}:{}", env.host, env.server_port);
-    let client_listener = Arc::new(Mutex::new(TcpListener::bind(format!("{}:{}", env.host, env.client_port)).await.unwrap()));
-    info!("Client listener is set up on {}:{}", env.host, env.client_port);
+    let server_listener = Arc::new(Mutex::new(TcpListener::bind(format!("{}:{}", env.local_ip, env.server_port)).await.unwrap()));
+    info!("Server listener is set up on {}:{}", env.local_ip, env.server_port);
+    let client_listener = Arc::new(Mutex::new(TcpListener::bind(format!("{}:{}", env.local_ip, env.client_port)).await.unwrap()));
+    info!("Client listener is set up on {}:{}", env.local_ip, env.client_port);
 
     let rt = Runtime::new().unwrap();
 
