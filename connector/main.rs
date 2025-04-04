@@ -1,7 +1,6 @@
 use tokio::runtime::Runtime;
 
 mod environment;
-mod encryption;
 mod connection;
 
 #[tokio::main]

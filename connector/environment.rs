@@ -1,7 +1,7 @@
 use std::env;
 use dotenvy::dotenv;
 use log::LevelFilter;
-use crate::encryption::generate_secret_from_string;
+use tcp_tunnel::encryption::generate_secret_from_string;
 
 #[derive(Clone, Debug)]
 pub struct Environment {

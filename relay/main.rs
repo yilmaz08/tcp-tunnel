@@ -4,7 +4,6 @@ use tokio::runtime::Runtime;
 use std::sync::Arc;
 use log::info;
 
-mod encryption;
 mod environment;
 mod connection;
 

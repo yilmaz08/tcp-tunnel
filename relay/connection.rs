@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::net::SocketAddr;
 use crate::environment::Environment;
 use log::{info, trace, error, debug};
+use tcp_tunnel::read_write;
 
 pub struct Connection {
     nonce: [u8; 12],
@@ -22,11 +23,11 @@ pub struct Connection {
 impl Connection {
     pub fn new(index: u16, env: Environment, server_listener: Arc<Mutex<TcpListener>>, client_listener: Arc<Mutex<TcpListener>>) -> Self {
         let result = Self {
-            nonce: crate::encryption::generate_random_nonce(),
+            nonce: tcp_tunnel::encryption::generate_random_nonce(),
             env,
             server_listener,
             client_listener,
-            log_target: format!("conn #{}", index)
+            log_target: format!("conn #{}", index),
         };
         debug!(target: &result.log_target, "Connection constructed!");
         return result;
@@ -93,9 +94,9 @@ impl Connection {
         let server_cipher = ChaCha20::new(&self.env.secret.into(), &self.nonce.into());
         trace!(target: &self.log_target, "Ciphers created");
 
-        let mut client_to_server = task::spawn(Connection::read_write(client_read, server_write, client_cipher));
+        let mut client_to_server = task::spawn(read_write(client_read, server_write, client_cipher));
         trace!(target: &self.log_target, "Client to server task spawned");
-        let mut server_to_client = task::spawn(Connection::read_write(server_read, client_write, server_cipher));
+        let mut server_to_client = task::spawn(read_write(server_read, client_write, server_cipher));
         trace!(target: &self.log_target, "Server to client task spawned");
 
         tokio::select! {
@@ -111,19 +112,5 @@ impl Connection {
 
         info!(target: &self.log_target, "Connection completed!");
         Ok(())
-    }
-
-    async fn read_write(mut read_stream: ReadHalf<TcpStream>, mut write_stream: WriteHalf<TcpStream>, mut cipher: ChaCha20) {
-        let mut buffer = [0u8; 512];
-        loop {
-            match read_stream.read(&mut buffer).await {
-                Ok(0) => break,
-                Err(e) => { error!("Failed to read from stream: {}", e); break; }
-                Ok(n) => {
-                    cipher.apply_keystream(&mut buffer);
-                    let _ = write_stream.write_all(&buffer[..n]).await;
-                }
-            }
-        }
     }
 }
