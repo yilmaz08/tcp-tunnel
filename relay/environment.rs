@@ -1,61 +1,66 @@
-use std::env;
+use anyhow::{Context, Result};
 use dotenvy::dotenv;
 use log::LevelFilter;
+use std::{
+    env,
+    net::{IpAddr, SocketAddr},
+};
 use tcp_tunnel::encryption::generate_secret_from_string;
 
 #[derive(Clone, Debug)]
 pub struct Environment {
-    pub local_ip: String,
-    pub server_port: u16,
-    pub client_port: u16,
+    pub server_addr: SocketAddr,
+    pub client_addr: SocketAddr,
     pub secret: [u8; 32],
     pub connections: u16,
-    pub log_level: LevelFilter
+    pub log_level: LevelFilter,
 }
 
 impl Environment {
-    pub fn new() -> Option<Self> {
-        match dotenv() {
-            Err(_) => {
-                panic!("dotenv couldn't be loaded")
-            },
-            Ok(_) => {}
-        }
-        Some(Self {
-            secret: match env::var("SECRET") {
-                Ok(val) => generate_secret_from_string(val),
-                Err(_) => panic!("no SECRET found")
-            },
-            local_ip: match env::var("LOCAL_IP") {
-                Ok(val) => val,
-                Err(_) => panic!("couldn't find LOCAL_IP in dotenv")
-            },
-            client_port: match env::var("CLIENT_PORT") {
-                Ok(val) => val.parse::<u16>().unwrap(),
-                Err(_) => panic!("couldn't find CLIENT_PORT in dotenv")
-            },
-            server_port: match env::var("SHARED_PORT") {
-                Ok(val) => val.parse::<u16>().unwrap(),
-                Err(_) => panic!("couldn't find SERVER_PORT in dotenv")
-            },
-            connections: match env::var("CONNECTIONS") {
-                Ok(val) => val.parse::<u16>().unwrap(),
-                Err(_) => panic!("couldn't find CONNECTIONS in dotenv")
-            },
-            log_level: match env::var("LOG_LEVEL") {
-                Ok(val) => {
-                    match val.parse::<u16>() {
-                        Ok(0) => LevelFilter::Off,
-                        Ok(1) => LevelFilter::Error,
-                        Ok(2) => LevelFilter::Warn,
-                        Ok(3) => LevelFilter::Info,
-                        Ok(4) => LevelFilter::Debug,
-                        Ok(5) => LevelFilter::Trace,
-                        _ => panic!("couldn't parse LOG_LEVEL")
-                    }
-                },
-                Err(_) => panic!("couldn't find LOG_LEVEL in dotenv")
-            }
+    pub fn new() -> Result<Self> {
+        dotenv().context("failed to load dotenv")?;
+
+        let local_ip: IpAddr = env::var("LOCAL_IP")
+            .context("couldn't find LOCAL_IP in dotenv")?
+            .parse()
+            .context("couldn't parse LOCAL_IP")?;
+
+        let client_port: u16 = env::var("CLIENT_PORT")
+            .context("couldn't find CLIENT_PORT in dotenv")?
+            .parse()
+            .context("couldn't parse CLIENT_PORT")?;
+
+        let server_port: u16 = env::var("SHARED_PORT")
+            .context("couldn't find SHARED_PORT in dotenv")?
+            .parse()
+            .context("couldn't parse SHARED_PORT")?;
+
+        let secret = env::var("SECRET").context("couldn't find SECRET in dotenv")?;
+
+        let connections: u16 = env::var("CONNECTIONS")
+            .context("couldn't find CONNECTIONS in dotenv")?
+            .parse()
+            .context("couldn't parse CONNECTIONS")?;
+
+        let log_level: LevelFilter = match env::var("LOG_LEVEL")
+            .context("couldn't find LOG_LEVEL in dotenv")?
+            .parse::<u16>()
+            .context("couldn't parse LOG_LEVEL")?
+        {
+            1 => LevelFilter::Error,
+            2 => LevelFilter::Warn,
+            3 => LevelFilter::Info,
+            4 => LevelFilter::Debug,
+            5 => LevelFilter::Trace,
+            _ => LevelFilter::Off,
+        };
+
+        Ok(Self {
+            client_addr: SocketAddr::new(local_ip, client_port),
+            server_addr: SocketAddr::new(local_ip, server_port),
+            secret: generate_secret_from_string(secret),
+            connections,
+            log_level,
         })
     }
 }

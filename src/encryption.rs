@@ -1,5 +1,5 @@
 use rand::Rng;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 pub fn generate_random_nonce() -> [u8; 12] {
     let mut rng = rand::thread_rng();
