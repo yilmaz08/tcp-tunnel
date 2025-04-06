@@ -4,8 +4,8 @@ use std::sync::Arc;
 use tcp_tunnel::tunnel::Tunnel;
 use tokio::{
     net::{TcpListener, TcpStream},
-    runtime::Runtime,
     sync::Mutex,
+    task,
 };
 
 mod environment;
@@ -71,10 +71,8 @@ async fn main() -> Result<()> {
     let client_listener = Arc::new(Mutex::new(TcpListener::bind(env.client_addr).await?));
     info!("Client listener is set up on {}", env.client_addr);
 
-    let rt = Runtime::new()?;
-
     for index in 0..env.connections {
-        rt.spawn({
+        task::spawn({
             let server_listener = server_listener.clone();
             let client_listener = client_listener.clone();
             async move {

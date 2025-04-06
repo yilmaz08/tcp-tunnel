@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use tcp_tunnel::tunnel::Tunnel;
 use tokio::{
     net::TcpStream,
-    runtime::Runtime,
+    task,
     time::{sleep, Duration},
 };
 
@@ -72,10 +72,8 @@ async fn main() -> Result<()> {
 
     env_logger::builder().filter_level(env.log_level).init();
 
-    let rt = Runtime::new()?;
-
     for index in 0..env.connections {
-        rt.spawn(async move {
+        task::spawn(async move {
             start_connection(
                 &format!("conn #{}", index),
                 env.secret,
