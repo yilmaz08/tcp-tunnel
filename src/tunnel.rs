@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
     ChaCha20,
@@ -7,7 +7,11 @@ use log::error;
 use tokio::{
     io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
     net::TcpStream,
+    time::{timeout, Duration},
 };
+
+const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
+const NONCE_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct Tunnel {
     nonce: [u8; 12],
@@ -31,7 +35,9 @@ impl Tunnel {
                 let mut cipher: ChaCha20 = ChaCha20::new(&secret.into(), &nonce.into());
                 // Receive encrypted "AUTH"
                 let mut auth = [0u8; 4];
-                stream.read_exact(&mut auth).await?;
+                timeout(AUTH_TIMEOUT, stream.read_exact(&mut auth))
+                    .await
+                    .context("Auth read timed out")??;
                 cipher.apply_keystream(&mut auth);
                 // Verify
                 if auth != *b"AUTH" {
@@ -43,7 +49,9 @@ impl Tunnel {
             false => {
                 // Receive Nonce
                 let mut nonce = [0u8; 12];
-                stream.read_exact(&mut nonce).await?;
+                timeout(NONCE_TIMEOUT, stream.read_exact(&mut nonce))
+                    .await
+                    .context("Nonce read timed out")??;
                 // Create cipher
                 let mut cipher: ChaCha20 = ChaCha20::new(&secret.into(), &nonce.into());
                 // Send encrypted "AUTH"

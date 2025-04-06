@@ -10,6 +10,8 @@ use tokio::{
 
 mod environment;
 
+const CONNREF_TIMEOUT: Duration = Duration::from_secs(5);
+
 async fn start_connection(
     log_target: &str,
     secret: [u8; 32],
@@ -23,8 +25,8 @@ async fn start_connection(
             Err(e) => {
                 match e.kind() {
                     std::io::ErrorKind::ConnectionRefused => {
-                        error!(target: log_target, "Connection refused! Sleeping for 5 seconds...");
-                        sleep(Duration::from_secs(5)).await;
+                        error!(target: log_target, "Connection refused! Sleeping for {:?}...", CONNREF_TIMEOUT);
+                        sleep(CONNREF_TIMEOUT).await;
                     }
                     _ => error!(target: log_target, "Couldn't connect to relay: {}", e),
                 }
@@ -48,10 +50,10 @@ async fn start_connection(
                 match e.kind() {
                     std::io::ErrorKind::ConnectionRefused => {
                         drop(tunnel);
-                        error!(target: log_target, "Connection refused! Sleeping for 5 seconds...");
-                        sleep(Duration::from_secs(5)).await;
+                        error!(target: log_target, "Connection refused! Sleeping for {:?}...", CONNREF_TIMEOUT);
+                        sleep(CONNREF_TIMEOUT).await;
                     }
-                    _ => error!(target: log_target, "Couldn't connect to server: {}", e)
+                    _ => error!(target: log_target, "Couldn't connect to server: {}", e),
                 }
                 continue;
             }

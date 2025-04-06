@@ -1,12 +1,12 @@
 use anyhow::Result;
-use log::error;
-use log::{debug, info};
+use log::{debug, error, info};
 use std::sync::Arc;
 use tcp_tunnel::tunnel::Tunnel;
-use tokio::net::TcpListener;
-use tokio::net::TcpStream;
-use tokio::runtime::Runtime;
-use tokio::sync::Mutex;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    runtime::Runtime,
+    sync::Mutex,
+};
 
 mod environment;
 
