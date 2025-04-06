@@ -5,7 +5,8 @@ This is a work-in-progress TCP tunneling project.
 - [x] Stream cipher encryption
 - [x] Handle multiple streams
 - [x] Detailed logging
-- [ ] Better error handling
+- [x] Better error handling
+- [ ] Abuse protection (ratelimit etc.)
 - [ ] UDP over TCP Tunnel
 - [ ] Docker
 
