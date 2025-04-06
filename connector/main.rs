@@ -2,7 +2,11 @@ use anyhow::Result;
 use log::{debug, error, info};
 use std::net::SocketAddr;
 use tcp_tunnel::tunnel::Tunnel;
-use tokio::{net::TcpStream, runtime::Runtime};
+use tokio::{
+    net::TcpStream,
+    runtime::Runtime,
+    time::{sleep, Duration},
+};
 
 mod environment;
 
@@ -17,7 +21,13 @@ async fn start_connection(
         let relay_stream = match TcpStream::connect(relay_addr).await {
             Ok(stream) => stream,
             Err(e) => {
-                error!(target: log_target, "Couldn't connect to relay: {}", e);
+                match e.kind() {
+                    std::io::ErrorKind::ConnectionRefused => {
+                        error!(target: log_target, "Connection refused! Sleeping for 5 seconds...");
+                        sleep(Duration::from_secs(5)).await;
+                    }
+                    _ => error!(target: log_target, "Couldn't connect to relay: {}", e),
+                }
                 continue;
             }
         };
@@ -35,7 +45,14 @@ async fn start_connection(
         let server_stream = match TcpStream::connect(server_addr).await {
             Ok(stream) => stream,
             Err(e) => {
-                error!(target: log_target, "Couldn't connect to server: {}", e);
+                match e.kind() {
+                    std::io::ErrorKind::ConnectionRefused => {
+                        drop(tunnel);
+                        error!(target: log_target, "Connection refused! Sleeping for 5 seconds...");
+                        sleep(Duration::from_secs(5)).await;
+                    }
+                    _ => error!(target: log_target, "Couldn't connect to server: {}", e)
+                }
                 continue;
             }
         };
