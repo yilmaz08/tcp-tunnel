@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::{debug, error, info};
 use std::net::SocketAddr;
-use tcp_tunnel::tunnel::Tunnel;
+use tcp_tunnel::{tunnel::Tunnel, error::TunnelError};
 use tokio::{
     net::TcpStream,
     task,
@@ -11,6 +11,7 @@ use tokio::{
 mod environment;
 
 const CONNREF_TIMEOUT: Duration = Duration::from_secs(5);
+const SECRET_MISMATCH_TIMEOUT: Duration = Duration::from_secs(5);
 
 async fn start_connection(
     log_target: &str,
@@ -25,7 +26,7 @@ async fn start_connection(
             Err(e) => {
                 match e.kind() {
                     std::io::ErrorKind::ConnectionRefused => {
-                        error!(target: log_target, "Connection refused! Sleeping for {:?}...", CONNREF_TIMEOUT);
+                        error!(target: log_target, "Connection refused: Sleeping for {:?}...", CONNREF_TIMEOUT);
                         sleep(CONNREF_TIMEOUT).await;
                     }
                     _ => error!(target: log_target, "Couldn't connect to relay: {}", e),
@@ -38,7 +39,13 @@ async fn start_connection(
         let tunnel = match Tunnel::init(relay_stream, false, secret).await {
             Ok(tunnel) => tunnel,
             Err(e) => {
-                error!(target: log_target, "Couldn't initialize a tunnel: {}", e);
+                match e.downcast_ref::<TunnelError>() {
+                    Some(TunnelError::SecretMismatch) => {
+                        error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_MISMATCH_TIMEOUT);
+                        sleep(SECRET_MISMATCH_TIMEOUT).await;
+                    }
+                    _ => error!(target: log_target, "Couldn't initialize a tunnel: {}", e),
+                }
                 continue;
             }
         };
@@ -50,7 +57,7 @@ async fn start_connection(
                 match e.kind() {
                     std::io::ErrorKind::ConnectionRefused => {
                         drop(tunnel);
-                        error!(target: log_target, "Connection refused! Sleeping for {:?}...", CONNREF_TIMEOUT);
+                        error!(target: log_target, "Connection refused: Sleeping for {:?}...", CONNREF_TIMEOUT);
                         sleep(CONNREF_TIMEOUT).await;
                     }
                     _ => error!(target: log_target, "Couldn't connect to server: {}", e),

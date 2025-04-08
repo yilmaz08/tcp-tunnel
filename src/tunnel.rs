@@ -11,6 +11,10 @@ use tokio::{
 };
 use super::error::TunnelError;
 
+// Note:
+// 0x01 -> starting byte
+// 0x02 -> secret mismatch
+
 const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
 const NONCE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -43,6 +47,7 @@ impl Tunnel {
                 cipher.apply_keystream(&mut auth);
                 // Verify
                 if auth != *b"AUTH" {
+                    stream.write_u8(2u8).await?; // send 0x02 to indicate SecretMismatch error
                     return Err(TunnelError::SecretMismatch.into());
                 }
 
@@ -62,7 +67,9 @@ impl Tunnel {
                 cipher.apply_keystream(&mut auth);
                 stream.write(&auth).await?;
                 // Wait a starting byte
-                stream.read_u8().await?;
+                if stream.read_u8().await? == 2u8 {
+                    return Err(TunnelError::SecretMismatch.into());
+                }
 
                 nonce
             }
