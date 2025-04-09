@@ -6,7 +6,9 @@ This is a work-in-progress TCP tunneling project.
 - [x] Handle multiple streams
 - [x] Detailed logging
 - [x] Better error handling
-- [ ] Abuse protection (ratelimit etc.)
+- [x] Abuse protection (ratelimit etc.)
+- [ ] TOML config
+- [ ] Multi-hop connections
 - [ ] UDP over TCP Tunnel
 - [ ] Docker
 
