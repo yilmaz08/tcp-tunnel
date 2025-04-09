@@ -7,7 +7,16 @@ use log::error;
 use tokio::{
     io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
     net::TcpStream,
+    time::{timeout, Duration},
 };
+use super::error::TunnelError;
+
+// Note:
+// 0x01 -> starting byte
+// 0x02 -> secret mismatch
+
+const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
+const NONCE_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct Tunnel {
     nonce: [u8; 12],
@@ -31,11 +40,15 @@ impl Tunnel {
                 let mut cipher: ChaCha20 = ChaCha20::new(&secret.into(), &nonce.into());
                 // Receive encrypted "AUTH"
                 let mut auth = [0u8; 4];
-                stream.read_exact(&mut auth).await?;
+                match timeout(AUTH_TIMEOUT, stream.read_exact(&mut auth)).await {
+                    Ok(read) => { read?; }
+                    Err(_) => return Err(TunnelError::Timeout.into())
+                }
                 cipher.apply_keystream(&mut auth);
                 // Verify
                 if auth != *b"AUTH" {
-                    return Err(anyhow::Error::msg("Secret mismatch"));
+                    stream.write_u8(2u8).await?; // send 0x02 to indicate SecretMismatch error
+                    return Err(TunnelError::SecretMismatch.into());
                 }
 
                 nonce
@@ -43,7 +56,16 @@ impl Tunnel {
             false => {
                 // Receive Nonce
                 let mut nonce = [0u8; 12];
-                stream.read_exact(&mut nonce).await?;
+                match timeout(NONCE_TIMEOUT, stream.read_exact(&mut nonce)).await {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => {
+                        if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                            return Err(TunnelError::NonceEarlyEOF.into());
+                        }
+                        return Err(e.into());
+                    },
+                    Err(_) => return Err(TunnelError::Timeout.into())
+                }
                 // Create cipher
                 let mut cipher: ChaCha20 = ChaCha20::new(&secret.into(), &nonce.into());
                 // Send encrypted "AUTH"
@@ -51,7 +73,9 @@ impl Tunnel {
                 cipher.apply_keystream(&mut auth);
                 stream.write(&auth).await?;
                 // Wait a starting byte
-                stream.read_u8().await?;
+                if stream.read_u8().await? == 2u8 {
+                    return Err(TunnelError::SecretMismatch.into());
+                }
 
                 nonce
             }

@@ -1,10 +1,18 @@
 use anyhow::Result;
 use log::{debug, error, info};
 use std::net::SocketAddr;
-use tcp_tunnel::tunnel::Tunnel;
-use tokio::{net::TcpStream, runtime::Runtime};
+use tcp_tunnel::{tunnel::Tunnel, error::TunnelError};
+use tokio::{
+    net::TcpStream,
+    task,
+    time::{sleep, Duration},
+};
 
 mod environment;
+
+const CONNREF_TIMEOUT: Duration = Duration::from_secs(5);
+const SECRET_MISMATCH_TIMEOUT: Duration = Duration::from_secs(5);
+const NONCE_EARLY_EOF_TIMEOUT: Duration = Duration::from_secs(15);
 
 async fn start_connection(
     log_target: &str,
@@ -17,7 +25,13 @@ async fn start_connection(
         let relay_stream = match TcpStream::connect(relay_addr).await {
             Ok(stream) => stream,
             Err(e) => {
-                error!(target: log_target, "Couldn't connect to relay: {}", e);
+                match e.kind() {
+                    std::io::ErrorKind::ConnectionRefused => {
+                        error!(target: log_target, "Connection refused: Sleeping for {:?}...", CONNREF_TIMEOUT);
+                        sleep(CONNREF_TIMEOUT).await;
+                    }
+                    _ => error!(target: log_target, "Couldn't connect to relay: {}", e),
+                }
                 continue;
             }
         };
@@ -26,7 +40,17 @@ async fn start_connection(
         let tunnel = match Tunnel::init(relay_stream, false, secret).await {
             Ok(tunnel) => tunnel,
             Err(e) => {
-                error!(target: log_target, "Couldn't initialize a tunnel: {}", e);
+                match e.downcast_ref::<TunnelError>() {
+                    Some(TunnelError::SecretMismatch) => {
+                        error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_MISMATCH_TIMEOUT);
+                        sleep(SECRET_MISMATCH_TIMEOUT).await;
+                    }
+                    Some(TunnelError::NonceEarlyEOF) => {
+                        error!(target: log_target, "{}: Sleeping for {:?}...", e, NONCE_EARLY_EOF_TIMEOUT);
+                        sleep(NONCE_EARLY_EOF_TIMEOUT).await;
+                    }
+                    _ => error!(target: log_target, "Couldn't initialize a tunnel: {}", e),
+                }
                 continue;
             }
         };
@@ -35,7 +59,14 @@ async fn start_connection(
         let server_stream = match TcpStream::connect(server_addr).await {
             Ok(stream) => stream,
             Err(e) => {
-                error!(target: log_target, "Couldn't connect to server: {}", e);
+                match e.kind() {
+                    std::io::ErrorKind::ConnectionRefused => {
+                        drop(tunnel);
+                        error!(target: log_target, "Connection refused: Sleeping for {:?}...", CONNREF_TIMEOUT);
+                        sleep(CONNREF_TIMEOUT).await;
+                    }
+                    _ => error!(target: log_target, "Couldn't connect to server: {}", e),
+                }
                 continue;
             }
         };
@@ -53,10 +84,8 @@ async fn main() -> Result<()> {
 
     env_logger::builder().filter_level(env.log_level).init();
 
-    let rt = Runtime::new()?;
-
     for index in 0..env.connections {
-        rt.spawn(async move {
+        task::spawn(async move {
             start_connection(
                 &format!("conn #{}", index),
                 env.secret,
