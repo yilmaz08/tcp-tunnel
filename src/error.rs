@@ -7,4 +7,7 @@ pub enum TunnelError {
     
     #[error("Timed out")]
     Timeout,
+
+    #[error("Early EOF in nonce exchange (possible ban)")]
+    NonceEarlyEOF,
 }

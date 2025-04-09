@@ -12,6 +12,7 @@ mod environment;
 
 const CONNREF_TIMEOUT: Duration = Duration::from_secs(5);
 const SECRET_MISMATCH_TIMEOUT: Duration = Duration::from_secs(5);
+const NONCE_EARLY_EOF_TIMEOUT: Duration = Duration::from_secs(15);
 
 async fn start_connection(
     log_target: &str,
@@ -43,6 +44,10 @@ async fn start_connection(
                     Some(TunnelError::SecretMismatch) => {
                         error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_MISMATCH_TIMEOUT);
                         sleep(SECRET_MISMATCH_TIMEOUT).await;
+                    }
+                    Some(TunnelError::NonceEarlyEOF) => {
+                        error!(target: log_target, "{}: Sleeping for {:?}...", e, NONCE_EARLY_EOF_TIMEOUT);
+                        sleep(NONCE_EARLY_EOF_TIMEOUT).await;
                     }
                     _ => error!(target: log_target, "Couldn't initialize a tunnel: {}", e),
                 }

@@ -57,7 +57,13 @@ impl Tunnel {
                 // Receive Nonce
                 let mut nonce = [0u8; 12];
                 match timeout(NONCE_TIMEOUT, stream.read_exact(&mut nonce)).await {
-                    Ok(read) => { read?; }
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => {
+                        if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                            return Err(TunnelError::NonceEarlyEOF.into());
+                        }
+                        return Err(e.into());
+                    },
                     Err(_) => return Err(TunnelError::Timeout.into())
                 }
                 // Create cipher

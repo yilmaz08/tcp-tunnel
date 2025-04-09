@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tcp_tunnel::{error::TunnelError, tunnel::Tunnel};
 use tokio::{
@@ -35,6 +35,7 @@ async fn start_connection(
             Ok((stream, addr)) => {
                 if let Some(&time) = ban_list.lock().await.get(&addr.ip()) {
                     if time > Instant::now() {
+                        trace!(target: log_target, "Connection attempt from banned IP: {}", addr.ip());
                         continue;
                     }
                 }
@@ -56,7 +57,7 @@ async fn start_connection(
                             .lock()
                             .await
                             .insert(server_addr.ip(), Instant::now() + BAN_LENGTH);
-                        error!(target: log_target, "{}: {} timed out for {:?}", e, server_addr.ip(), BAN_LENGTH);
+                        error!(target: log_target, "{}: {} is temporarily banned for {:?}", e, server_addr.ip(), BAN_LENGTH);
                     }
                     _ => error!(target: log_target, "Couldn't initialize a tunnel: {}", e),
                 }
