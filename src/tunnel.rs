@@ -1,3 +1,4 @@
+use super::error::TunnelError;
 use anyhow::Result;
 use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
@@ -7,9 +8,9 @@ use log::error;
 use tokio::{
     io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
     net::TcpStream,
+    task,
     time::{timeout, Duration},
 };
-use super::error::TunnelError;
 
 // Note:
 // 0x01 -> starting byte
@@ -21,7 +22,6 @@ const NONCE_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct Tunnel {
     nonce: [u8; 12],
     secret: [u8; 32],
-    profile: bool, // true -> relay, false -> connector
     tunnel_read: ReadHalf<TcpStream>,
     tunnel_write: WriteHalf<TcpStream>,
 }
@@ -41,8 +41,10 @@ impl Tunnel {
                 // Receive encrypted "AUTH"
                 let mut auth = [0u8; 4];
                 match timeout(AUTH_TIMEOUT, stream.read_exact(&mut auth)).await {
-                    Ok(read) => { read?; }
-                    Err(_) => return Err(TunnelError::Timeout.into())
+                    Ok(read) => {
+                        read?;
+                    }
+                    Err(_) => return Err(TunnelError::Timeout.into()),
                 }
                 cipher.apply_keystream(&mut auth);
                 // Verify
@@ -50,6 +52,7 @@ impl Tunnel {
                     stream.write_u8(2u8).await?; // send 0x02 to indicate SecretMismatch error
                     return Err(TunnelError::SecretMismatch.into());
                 }
+                stream.write_u8(1u8).await?;
 
                 nonce
             }
@@ -63,8 +66,8 @@ impl Tunnel {
                             return Err(TunnelError::NonceEarlyEOF.into());
                         }
                         return Err(e.into());
-                    },
-                    Err(_) => return Err(TunnelError::Timeout.into())
+                    }
+                    Err(_) => return Err(TunnelError::Timeout.into()),
                 }
                 // Create cipher
                 let mut cipher: ChaCha20 = ChaCha20::new(&secret.into(), &nonce.into());
@@ -85,35 +88,56 @@ impl Tunnel {
         Ok(Self {
             nonce,
             secret,
-            profile,
             tunnel_read,
             tunnel_write,
         })
     }
 
+    pub async fn join(self, b: Tunnel) -> Result<()> {
+        let a_write = ChaCha20::new(&self.secret.into(), &self.nonce.into());
+        let a_read = ChaCha20::new(&self.secret.into(), &self.nonce.into());
+
+        let b_write = ChaCha20::new(&b.secret.into(), &b.nonce.into());
+        let b_read = ChaCha20::new(&b.secret.into(), &b.nonce.into());
+
+        let mut a_to_b = task::spawn(Tunnel::read_write(
+            self.tunnel_read,
+            b.tunnel_write,
+            vec![a_read, b_write],
+        ));
+
+        let mut b_to_a = task::spawn(Tunnel::read_write(
+            b.tunnel_read,
+            self.tunnel_write,
+            vec![b_read, a_write],
+        ));
+
+        tokio::select! {
+            _ = &mut a_to_b => b_to_a.abort(),
+            _ = &mut b_to_a => a_to_b.abort()
+        }
+
+        Ok(())
+    }
+
     // Start data stream
     // 1- Create ciphers
     // 2- Start read_write mirroring
-    pub async fn run(mut self, stream: TcpStream) -> Result<()> {
+    pub async fn run(self, stream: TcpStream) -> Result<()> {
         let (target_read, target_write) = split(stream);
-
-        if self.profile {
-            // Send starting byte
-            self.tunnel_write.write_u8(1u8).await?;
-        }
 
         let tunnel_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());
         let target_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());
 
-        let mut tunnel_to_target = tokio::task::spawn(Tunnel::read_write(
+        let mut tunnel_to_target = task::spawn(Tunnel::read_write(
             self.tunnel_read,
             target_write,
-            tunnel_cipher,
+            vec![tunnel_cipher],
         ));
-        let mut target_to_tunnel = tokio::task::spawn(Tunnel::read_write(
+        let mut target_to_tunnel = task::spawn(Tunnel::read_write(
             target_read,
             self.tunnel_write,
-            target_cipher,
+            vec![target_cipher],
         ));
 
         tokio::select! {
@@ -126,12 +150,12 @@ impl Tunnel {
 
     // Read from a stream and write to another
     // 1- Read from the read half
-    // 2- Apply key stream
+    // 2- Apply key streams
     // 3- Write to the write half
-    async fn read_write(
+    pub async fn read_write(
         mut read_stream: ReadHalf<TcpStream>,
         mut write_stream: WriteHalf<TcpStream>,
-        mut cipher: ChaCha20,
+        mut ciphers: Vec<ChaCha20>,
     ) {
         let mut buffer = [0u8; 512];
         loop {
@@ -142,7 +166,9 @@ impl Tunnel {
                     break;
                 }
                 Ok(n) => {
-                    cipher.apply_keystream(&mut buffer);
+                    for cipher in &mut ciphers {
+                        cipher.apply_keystream(&mut buffer);
+                    }
                     let _ = write_stream.write_all(&buffer[..n]).await;
                 }
             }

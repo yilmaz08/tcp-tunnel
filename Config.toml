@@ -1,0 +1,48 @@
+secret = "1234"
+log_level = 5
+
+# EXAMPLES
+## Relay
+# [endpoints.client]
+# port = 8000 # client connects here
+# type = "direct"
+# direction = "inbound"
+#
+# [endpoints.tunnel-listen]
+# port = 8080
+# type = "tunnel"
+# direction = "inbound"
+#
+# [[routes]]
+# endpoints = ["tunnel-listen", "client"]
+# size = 1 # max tunnel count
+
+## Connector
+# [endpoints.tunnel-connect]
+# port = 8080
+# type = "tunnel"
+# direction = "outbound"
+#
+# [endpoints.server]
+# port = 8888 # server exposes here
+# type = "direct"
+# direction = "outbound"
+#
+# [[routes]]
+# endpoints = ["tunnel-connect", "server"]
+# size = 1
+
+## Proxy
+# [endpoints.client]
+# port = 8000 # client connects here
+# type = "direct"
+# direction = "inbound"
+#
+# [endpoints.server]
+# port = 8888 # server exposes here
+# type = "direct"
+# direction = "outbound"
+#
+# [[routes]]
+# endpoints = ["client", "server"]
+# size = 1
