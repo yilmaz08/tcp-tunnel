@@ -167,7 +167,7 @@ impl Tunnel {
                 }
                 Ok(n) => {
                     for cipher in &mut ciphers {
-                        cipher.apply_keystream(&mut buffer);
+                        cipher.apply_keystream(&mut buffer[..n]);
                     }
                     let _ = write_stream.write_all(&buffer[..n]).await;
                 }
