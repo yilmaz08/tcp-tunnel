@@ -6,6 +6,7 @@ use std::{net::SocketAddr, sync::Arc};
 use tokio::io::split;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
+use tokio::time::{sleep, Duration};
 
 #[derive(Debug, Clone)]
 pub enum ConnectionData {
@@ -16,7 +17,7 @@ pub enum ConnectionData {
     Outbound {
         addr: SocketAddr,
         secret_option: Option<[u8; 32]>,
-    }
+    },
 }
 
 pub enum Connection {
@@ -32,60 +33,95 @@ pub async fn get_connection_data(endpoint: &Endpoint, secret: [u8; 32]) -> Resul
         ConnectionType::Direct => None,
     };
     Ok(match endpoint.direction {
-        Direction::Outbound => ConnectionData::Outbound { addr, secret_option },
-        Direction::Inbound => {
-            ConnectionData::Inbound {
-                listener_lock: Arc::new(Mutex::new(TcpListener::bind(addr).await?)),
-                secret_option
-            }
-        }
+        Direction::Outbound => ConnectionData::Outbound {
+            addr,
+            secret_option,
+        },
+        Direction::Inbound => ConnectionData::Inbound {
+            listener_lock: Arc::new(Mutex::new(TcpListener::bind(addr).await?)),
+            secret_option,
+        },
     })
 }
 
 // Gets ConnectionData and returns Connection
-pub async fn connect(data: &ConnectionData) -> Result<Connection> {
+pub async fn connect(
+    data: &ConnectionData,
+    log_target: &str,
+    endpoint_name: &str,
+) -> Result<Connection> {
     Ok(match &data {
-        ConnectionData::Inbound { listener_lock, secret_option } => {
+        ConnectionData::Inbound {
+            listener_lock,
+            secret_option,
+        } => {
+            info!(target: log_target, "Listening for '{}'", endpoint_name);
             let listener = listener_lock.lock().await;
             let (stream, _) = listener.accept().await?;
             drop(listener);
-            if let Some(secret) = secret_option {
+
+            let conn = if let Some(secret) = secret_option {
+                debug!(target: log_target, "Initializing the tunnel");
                 Connection::Tunnel(Tunnel::init(stream, true, *secret).await?)
             } else {
                 Connection::Direct(stream)
-            }
+            };
+
+            debug!(target: log_target, "Connection from '{}'", endpoint_name);
+            conn
         }
-        ConnectionData::Outbound { addr, secret_option } => {
+        ConnectionData::Outbound {
+            addr,
+            secret_option,
+        } => {
+            info!(target: log_target, "Connecting to '{}'", endpoint_name);
             let stream = TcpStream::connect(addr).await?;
-            if let Some(secret) = secret_option {
+
+            let conn = if let Some(secret) = secret_option {
+                debug!(target: log_target, "Initializing the tunnel");
                 Connection::Tunnel(Tunnel::init(stream, false, *secret).await?)
             } else {
                 Connection::Direct(stream)
-            }
+            };
+
+            debug!(target: log_target, "Connected to '{}'", endpoint_name);
+            conn
         }
     })
 }
 
 pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: &str) {
     loop {
-        info!(target: log_target, "Connecting to stream A...");
-        let ts_a = match connect(&a).await {
+        let ts_a = match connect(&a, log_target, "Stream A").await {
             Ok(x) => x,
             Err(e) => {
-                error!(target: log_target, "Couldn't get stream A: {:#?}", e);
-                continue;
-            }
-        };
-        debug!(target: log_target, "Connected to stream A!");
-        info!(target: log_target, "Connecting to stream B...");
-        let ts_b = match connect(&b).await {
-            Ok(x) => x,
-            Err(e) => {
+                if let Some(io_error) = e.downcast_ref::<std::io::Error>() {
+                    if io_error.kind() == std::io::ErrorKind::ConnectionRefused {
+                        error!(target: log_target, "Connection refused! Sleeping for 5 seconds...");
+                        sleep(Duration::from_secs(5)).await;
+                        continue;
+                    }
+                }
                 error!(target: log_target, "Couldn't get stream B: {}", e);
                 continue;
             }
         };
-        debug!(target: log_target, "Connected to stream B!");
+
+        let ts_b = match connect(&b, log_target, "Stream B").await {
+            Ok(x) => x,
+            Err(e) => {
+                if let Some(io_error) = e.downcast_ref::<std::io::Error>() {
+                    if io_error.kind() == std::io::ErrorKind::ConnectionRefused {
+                        drop(ts_a);
+                        error!(target: log_target, "Connection refused! Sleeping for 5 seconds...");
+                        sleep(Duration::from_secs(5)).await;
+                        continue;
+                    }
+                }
+                error!(target: log_target, "Couldn't get stream B: {}", e);
+                continue;
+            }
+        };
 
         let res = match (ts_a, ts_b) {
             (Connection::Tunnel(a), Connection::Tunnel(b)) => a.join(b).await,
@@ -109,7 +145,7 @@ pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: 
         };
 
         if let Err(e) = res {
-            error!(target: log_target, "Failed: {}", e);
+            error!(target: log_target, "Route failed: {}", e);
         }
     }
 }

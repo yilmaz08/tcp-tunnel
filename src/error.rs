@@ -10,4 +10,11 @@ pub enum TunnelError {
 
     #[error("Early EOF in nonce exchange (possible ban)")]
     NonceEarlyEOF,
+
+    // Config Errors
+    #[error("Endpoint wasn't not found")]
+    EndpointNotFound,
+
+    #[error("Endpoint is connected to itself")]
+    RouteToSelf,
 }
