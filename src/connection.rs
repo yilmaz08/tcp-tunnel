@@ -1,7 +1,7 @@
 use crate::config::{ConnectionType, Direction, Endpoint};
-use crate::tunnel::Tunnel;
-use crate::error::TunnelError;
 use crate::encryption::generate_secret_from_string;
+use crate::error::TunnelError;
+use crate::tunnel::Tunnel;
 use anyhow::Result;
 use log::{debug, error, info};
 use std::{net::SocketAddr, sync::Arc};
@@ -11,6 +11,10 @@ use tokio::{
     sync::Mutex,
     time::{sleep, Duration},
 };
+
+const CONNREF_TIMEOUT: Duration = Duration::from_secs(5);
+const SECRET_MISMATCH_TIMEOUT: Duration = Duration::from_secs(30);
+const NONCE_EARLY_EOF_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone)]
 pub enum ConnectionData {
@@ -33,12 +37,10 @@ pub enum Connection {
 pub async fn get_connection_data(endpoint: &Endpoint) -> Result<ConnectionData> {
     let addr = SocketAddr::new(endpoint.ip.unwrap_or("0.0.0.0".parse()?), endpoint.port);
     let secret_option = match endpoint.kind {
-        ConnectionType::Tunnel => {
-            match &endpoint.secret {
-                Some(secret) => Some(generate_secret_from_string(secret.to_owned())),
-                None => return Err(TunnelError::NoSecret.into())
-            }
-        }
+        ConnectionType::Tunnel => match &endpoint.secret {
+            Some(secret) => Some(generate_secret_from_string(secret.to_owned())),
+            None => return Err(TunnelError::NoSecret.into()),
+        },
         ConnectionType::Direct => None,
     };
     Ok(match endpoint.direction {
@@ -106,9 +108,21 @@ pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: 
             Err(e) => {
                 if let Some(io_error) = e.downcast_ref::<std::io::Error>() {
                     if io_error.kind() == std::io::ErrorKind::ConnectionRefused {
-                        error!(target: log_target, "Connection refused! Sleeping for 5 seconds...");
-                        sleep(Duration::from_secs(5)).await;
+                        error!(target: log_target, "Connection refused! Sleeping for {:?}...", CONNREF_TIMEOUT);
+                        sleep(CONNREF_TIMEOUT).await;
                         continue;
+                    }
+                } else if let Some(tunnel_error) = e.downcast_ref::<TunnelError>() {
+                    match tunnel_error {
+                        TunnelError::SecretMismatch => {
+                            error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_MISMATCH_TIMEOUT);
+                            sleep(SECRET_MISMATCH_TIMEOUT).await;
+                        }
+                        TunnelError::NonceEarlyEOF => {
+                            error!(target: log_target, "{}: Sleeping for {:?}...", e, NONCE_EARLY_EOF_TIMEOUT);
+                            sleep(NONCE_EARLY_EOF_TIMEOUT).await;
+                        }
+                        _ => {}
                     }
                 }
                 error!(target: log_target, "Couldn't get stream B: {}", e);
@@ -119,12 +133,26 @@ pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: 
         let ts_b = match connect(&b, log_target, "Stream B").await {
             Ok(x) => x,
             Err(e) => {
+                drop(ts_a);
                 if let Some(io_error) = e.downcast_ref::<std::io::Error>() {
                     if io_error.kind() == std::io::ErrorKind::ConnectionRefused {
-                        drop(ts_a);
-                        error!(target: log_target, "Connection refused! Sleeping for 5 seconds...");
-                        sleep(Duration::from_secs(5)).await;
+                        error!(target: log_target, "Connection refused! Sleeping for {:?}...", CONNREF_TIMEOUT);
+                        sleep(CONNREF_TIMEOUT).await;
                         continue;
+                    }
+                } else if let Some(tunnel_error) = e.downcast_ref::<TunnelError>() {
+                    match tunnel_error {
+                        TunnelError::SecretMismatch => {
+                            error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_MISMATCH_TIMEOUT);
+                            sleep(SECRET_MISMATCH_TIMEOUT).await;
+                            continue;
+                        }
+                        TunnelError::NonceEarlyEOF => {
+                            error!(target: log_target, "{}: Sleeping for {:?}...", e, NONCE_EARLY_EOF_TIMEOUT);
+                            sleep(NONCE_EARLY_EOF_TIMEOUT).await;
+                            continue;
+                        }
+                        _ => {}
                     }
                 }
                 error!(target: log_target, "Couldn't get stream B: {}", e);
