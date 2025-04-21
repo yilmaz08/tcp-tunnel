@@ -18,7 +18,6 @@ pub enum Direction {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct TunnelConfig {
-    pub secret: String,
     pub routes: Vec<Route>,
     pub endpoints: HashMap<String, Endpoint>,
     pub log_level: Option<u8>,
@@ -31,6 +30,7 @@ pub struct Endpoint {
     #[serde(rename = "type")]
     pub kind: ConnectionType,
     pub direction: Direction,
+    pub secret: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]

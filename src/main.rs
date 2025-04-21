@@ -1,6 +1,6 @@
 use anyhow::Result;
 use config::{Endpoint, TunnelConfig};
-use connection::{get_connection_data, ConnectionData};
+use connection::ConnectionData;
 use error::TunnelError;
 use log::{warn, LevelFilter};
 use std::collections::HashMap;
@@ -14,7 +14,6 @@ mod tunnel;
 
 async fn get_conndata_from_endpoint(
     name: &str,
-    secret: [u8; 32],
     endpoint_conn_data: &mut HashMap<String, ConnectionData>,
     endpoints: &HashMap<String, Endpoint>,
 ) -> Result<ConnectionData> {
@@ -25,7 +24,7 @@ async fn get_conndata_from_endpoint(
         Some(x) => x,
         None => return Err(TunnelError::EndpointNotFound.into()),
     };
-    let conn_data = get_connection_data(endpoint, secret).await?;
+    let conn_data = connection::get_connection_data(endpoint).await?;
     endpoint_conn_data.insert(name.to_owned(), conn_data.clone());
     Ok(conn_data)
 }
@@ -47,9 +46,6 @@ async fn main() -> Result<()> {
     };
     env_logger::builder().filter_level(log_level).init();
 
-    // Encryption
-    let secret: [u8; 32] = encryption::generate_secret_from_string(config.secret);
-
     // Connection
     let mut endpoint_conn_data: HashMap<String, ConnectionData> = HashMap::new();
     for (route_index, route) in config.routes.iter().enumerate() {
@@ -60,14 +56,12 @@ async fn main() -> Result<()> {
         // Get endpoint data
         let endpoint_a = get_conndata_from_endpoint(
             &route.endpoints[0],
-            secret,
             &mut endpoint_conn_data,
             &config.endpoints,
         )
         .await?;
         let endpoint_b = get_conndata_from_endpoint(
             &route.endpoints[1],
-            secret,
             &mut endpoint_conn_data,
             &config.endpoints,
         )

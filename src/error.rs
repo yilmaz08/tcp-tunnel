@@ -17,4 +17,7 @@ pub enum TunnelError {
 
     #[error("Endpoint is connected to itself")]
     RouteToSelf,
+
+    #[error("Every tunnel requires a secret")]
+    NoSecret,
 }

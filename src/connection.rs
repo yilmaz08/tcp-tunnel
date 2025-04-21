@@ -1,5 +1,7 @@
 use crate::config::{ConnectionType, Direction, Endpoint};
 use crate::tunnel::Tunnel;
+use crate::error::TunnelError;
+use crate::encryption::generate_secret_from_string;
 use anyhow::Result;
 use log::{debug, error, info};
 use std::{net::SocketAddr, sync::Arc};
@@ -28,10 +30,15 @@ pub enum Connection {
 }
 
 // Gets endpoint and returns ConnectionData
-pub async fn get_connection_data(endpoint: &Endpoint, secret: [u8; 32]) -> Result<ConnectionData> {
+pub async fn get_connection_data(endpoint: &Endpoint) -> Result<ConnectionData> {
     let addr = SocketAddr::new(endpoint.ip.unwrap_or("0.0.0.0".parse()?), endpoint.port);
     let secret_option = match endpoint.kind {
-        ConnectionType::Tunnel => Some(secret),
+        ConnectionType::Tunnel => {
+            match &endpoint.secret {
+                Some(secret) => Some(generate_secret_from_string(secret.to_owned())),
+                None => return Err(TunnelError::NoSecret.into())
+            }
+        }
         ConnectionType::Direct => None,
     };
     Ok(match endpoint.direction {
