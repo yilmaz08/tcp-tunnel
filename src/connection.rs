@@ -3,10 +3,12 @@ use crate::tunnel::Tunnel;
 use anyhow::Result;
 use log::{debug, error, info};
 use std::{net::SocketAddr, sync::Arc};
-use tokio::io::split;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration};
+use tokio::{
+    io::split,
+    net::{TcpListener, TcpStream},
+    sync::Mutex,
+    time::{sleep, Duration},
+};
 
 #[derive(Debug, Clone)]
 pub enum ConnectionData {
@@ -124,7 +126,6 @@ pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: 
         };
 
         let res = match (ts_a, ts_b) {
-            (Connection::Tunnel(a), Connection::Tunnel(b)) => a.join(b).await,
             (Connection::Direct(a), Connection::Direct(b)) => {
                 let (a_read, a_write) = split(a);
                 let (b_read, b_write) = split(b);
@@ -139,6 +140,7 @@ pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: 
 
                 Ok(())
             }
+            (Connection::Tunnel(a), Connection::Tunnel(b)) => a.join(b).await,
 
             (Connection::Tunnel(a), Connection::Direct(b)) => a.run(b).await,
             (Connection::Direct(a), Connection::Tunnel(b)) => b.run(a).await,

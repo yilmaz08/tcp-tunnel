@@ -12,9 +12,9 @@ use tokio::{
     time::{timeout, Duration},
 };
 
-// Note:
-// 0x01 -> starting byte
-// 0x02 -> secret mismatch
+// Starting bytes:
+// 0x01 -> OK
+// 0x02 -> SecretMismatch
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
 const NONCE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -24,6 +24,7 @@ pub struct Tunnel {
     secret: [u8; 32],
     tunnel_read: ReadHalf<TcpStream>,
     tunnel_write: WriteHalf<TcpStream>,
+    profile: bool,
 }
 
 impl Tunnel {
@@ -52,7 +53,6 @@ impl Tunnel {
                     stream.write_u8(2u8).await?; // send 0x02 to indicate SecretMismatch error
                     return Err(TunnelError::SecretMismatch.into());
                 }
-                stream.write_u8(1u8).await?;
 
                 nonce
             }
@@ -90,15 +90,26 @@ impl Tunnel {
             secret,
             tunnel_read,
             tunnel_write,
+            profile,
         })
     }
 
-    pub async fn join(self, b: Tunnel) -> Result<()> {
+    // Connect to separate tunnels to each other
+    // 1- Create ciphers (4 in total)
+    // 2- Start read_write function
+    pub async fn join(mut self, mut b: Tunnel) -> Result<()> {
         let a_write = ChaCha20::new(&self.secret.into(), &self.nonce.into());
         let a_read = ChaCha20::new(&self.secret.into(), &self.nonce.into());
 
         let b_write = ChaCha20::new(&b.secret.into(), &b.nonce.into());
         let b_read = ChaCha20::new(&b.secret.into(), &b.nonce.into());
+
+        if self.profile {
+            self.tunnel_write.write_u8(1u8).await?;
+        }
+        if b.profile {
+            b.tunnel_write.write_u8(1u8).await?;
+        }
 
         let mut a_to_b = task::spawn(Tunnel::read_write(
             self.tunnel_read,
@@ -122,8 +133,12 @@ impl Tunnel {
 
     // Start data stream
     // 1- Create ciphers
-    // 2- Start read_write mirroring
-    pub async fn run(self, stream: TcpStream) -> Result<()> {
+    // 2- Start read_write function
+    pub async fn run(mut self, stream: TcpStream) -> Result<()> {
+        if self.profile {
+            self.tunnel_write.write_u8(1u8).await?;
+        }
+        
         let (target_read, target_write) = split(stream);
 
         let tunnel_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());

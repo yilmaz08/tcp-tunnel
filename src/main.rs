@@ -32,9 +32,11 @@ async fn get_conndata_from_endpoint(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Config
     let config_path = &std::env::var("TUNNEL_CONFIG").unwrap_or("Config.toml".to_owned());
     let config = TunnelConfig::load(config_path)?;
 
+    // Logging
     let log_level: LevelFilter = match config.log_level {
         Some(0) => LevelFilter::Off,
         Some(1) => LevelFilter::Error,
@@ -45,13 +47,17 @@ async fn main() -> Result<()> {
     };
     env_logger::builder().filter_level(log_level).init();
 
+    // Encryption
     let secret: [u8; 32] = encryption::generate_secret_from_string(config.secret);
 
+    // Connection
     let mut endpoint_conn_data: HashMap<String, ConnectionData> = HashMap::new();
     for (route_index, route) in config.routes.iter().enumerate() {
+        // Check if it is a RouteToSelf
         if &route.endpoints[0] == &route.endpoints[1] {
             return Err(TunnelError::RouteToSelf.into());
         }
+        // Get endpoint data
         let endpoint_a = get_conndata_from_endpoint(
             &route.endpoints[0],
             secret,
@@ -66,6 +72,7 @@ async fn main() -> Result<()> {
             &config.endpoints,
         )
         .await?;
+        // Generate worker tasks
         for conn_index in 0..route.size {
             task::spawn({
                 let endpoint_a = endpoint_a.clone();
