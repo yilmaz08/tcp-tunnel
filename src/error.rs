@@ -2,8 +2,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum TunnelError {
-    #[error("Secret mismatch")]
+    // Occurs on inbound tunnels and doesn't timeout
+    #[error("Secret Mismatch")]
     SecretMismatch,
+    // Occurs on outbound tunnels and times out
+    #[error("Secret Mismatch")]
+    SecretRejected,
 
     #[error("Timed out")]
     Timeout,

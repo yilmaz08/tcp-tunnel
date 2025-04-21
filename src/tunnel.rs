@@ -77,7 +77,7 @@ impl Tunnel {
                 stream.write(&auth).await?;
                 // Wait a starting byte
                 if stream.read_u8().await? == 2u8 {
-                    return Err(TunnelError::SecretMismatch.into());
+                    return Err(TunnelError::SecretRejected.into());
                 }
 
                 nonce

@@ -13,7 +13,7 @@ use tokio::{
 };
 
 const CONNREF_TIMEOUT: Duration = Duration::from_secs(5);
-const SECRET_MISMATCH_TIMEOUT: Duration = Duration::from_secs(30);
+const SECRET_REJECTED_TIMEOUT: Duration = Duration::from_secs(30);
 const NONCE_EARLY_EOF_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone)]
@@ -114,9 +114,9 @@ pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: 
                     }
                 } else if let Some(tunnel_error) = e.downcast_ref::<TunnelError>() {
                     match tunnel_error {
-                        TunnelError::SecretMismatch => {
-                            error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_MISMATCH_TIMEOUT);
-                            sleep(SECRET_MISMATCH_TIMEOUT).await;
+                        TunnelError::SecretRejected => {
+                            error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_REJECTED_TIMEOUT);
+                            sleep(SECRET_REJECTED_TIMEOUT).await;
                         }
                         TunnelError::NonceEarlyEOF => {
                             error!(target: log_target, "{}: Sleeping for {:?}...", e, NONCE_EARLY_EOF_TIMEOUT);
@@ -142,9 +142,9 @@ pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: 
                     }
                 } else if let Some(tunnel_error) = e.downcast_ref::<TunnelError>() {
                     match tunnel_error {
-                        TunnelError::SecretMismatch => {
-                            error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_MISMATCH_TIMEOUT);
-                            sleep(SECRET_MISMATCH_TIMEOUT).await;
+                        TunnelError::SecretRejected => {
+                            error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_REJECTED_TIMEOUT);
+                            sleep(SECRET_REJECTED_TIMEOUT).await;
                             continue;
                         }
                         TunnelError::NonceEarlyEOF => {
