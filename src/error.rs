@@ -4,13 +4,13 @@ use thiserror::Error;
 pub enum TunnelError {
     // Occurs on inbound tunnels and doesn't timeout
     #[error("Secret Mismatch")]
-    SecretMismatch,
+    SecretMismatch(std::net::IpAddr),
     // Occurs on outbound tunnels and times out
     #[error("Secret Mismatch")]
     SecretRejected,
 
     #[error("Timed out")]
-    Timeout,
+    Timeout(std::net::IpAddr),
 
     #[error("Early EOF in nonce exchange (possible ban)")]
     NonceEarlyEOF,
@@ -24,4 +24,7 @@ pub enum TunnelError {
 
     #[error("Every tunnel requires a secret")]
     NoSecret,
+
+    #[error("Connection attempt from banned IP")]
+    ConnAttemptFromBannedIP,
 }

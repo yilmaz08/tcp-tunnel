@@ -3,8 +3,8 @@ use config::{Endpoint, TunnelConfig};
 use connection::ConnectionData;
 use error::TunnelError;
 use log::{warn, LevelFilter};
-use std::collections::HashMap;
-use tokio::task;
+use std::{collections::HashMap, net::IpAddr, sync::Arc};
+use tokio::{sync::Mutex, task, time::Instant};
 
 mod config;
 mod connection;
@@ -46,6 +46,9 @@ async fn main() -> Result<()> {
     };
     env_logger::builder().filter_level(log_level).init();
 
+    // Ban list
+    let ban_list = Arc::new(Mutex::new(HashMap::<IpAddr, Instant>::new()));
+
     // Connection
     let mut endpoint_conn_data: HashMap<String, ConnectionData> = HashMap::new();
     for (route_index, route) in config.routes.iter().enumerate() {
@@ -71,11 +74,13 @@ async fn main() -> Result<()> {
             task::spawn({
                 let endpoint_a = endpoint_a.clone();
                 let endpoint_b = endpoint_b.clone();
+                let ban_list = ban_list.clone();
                 async move {
                     connection::start_connection(
                         endpoint_a,
                         endpoint_b,
                         &format!("route #{} worker #{}", route_index, conn_index),
+                        ban_list,
                     )
                     .await;
                 }

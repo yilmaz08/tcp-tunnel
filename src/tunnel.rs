@@ -1,4 +1,4 @@
-use super::error::TunnelError;
+use crate::error::TunnelError;
 use anyhow::Result;
 use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
@@ -45,13 +45,13 @@ impl Tunnel {
                     Ok(read) => {
                         read?;
                     }
-                    Err(_) => return Err(TunnelError::Timeout.into()),
+                    Err(_) => return Err(TunnelError::Timeout(stream.peer_addr()?.ip()).into()),
                 }
                 cipher.apply_keystream(&mut auth);
                 // Verify
                 if auth != *b"AUTH" {
                     stream.write_u8(2u8).await?; // send 0x02 to indicate SecretMismatch error
-                    return Err(TunnelError::SecretMismatch.into());
+                    return Err(TunnelError::SecretMismatch(stream.peer_addr()?.ip()).into());
                 }
 
                 nonce
@@ -67,7 +67,7 @@ impl Tunnel {
                         }
                         return Err(e.into());
                     }
-                    Err(_) => return Err(TunnelError::Timeout.into()),
+                    Err(_) => return Err(TunnelError::Timeout(stream.peer_addr()?.ip()).into()),
                 }
                 // Create cipher
                 let mut cipher: ChaCha20 = ChaCha20::new(&secret.into(), &nonce.into());
@@ -138,7 +138,7 @@ impl Tunnel {
         if self.profile {
             self.tunnel_write.write_u8(1u8).await?;
         }
-        
+
         let (target_read, target_write) = split(stream);
 
         let tunnel_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());

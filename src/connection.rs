@@ -1,20 +1,27 @@
-use crate::config::{ConnectionType, Direction, Endpoint};
-use crate::encryption::generate_secret_from_string;
-use crate::error::TunnelError;
-use crate::tunnel::Tunnel;
+use crate::{
+    config::{ConnectionType, Direction, Endpoint},
+    encryption::generate_secret_from_string,
+    error::TunnelError,
+    tunnel::Tunnel,
+};
 use anyhow::Result;
 use log::{debug, error, info};
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 use tokio::{
     io::split,
     net::{TcpListener, TcpStream},
     sync::Mutex,
-    time::{sleep, Duration},
+    time::{sleep, Duration, Instant},
 };
 
 const CONNREF_TIMEOUT: Duration = Duration::from_secs(5);
 const SECRET_REJECTED_TIMEOUT: Duration = Duration::from_secs(30);
 const NONCE_EARLY_EOF_TIMEOUT: Duration = Duration::from_secs(15);
+const BAN_LENGTH: Duration = Duration::from_secs(60 * 5);
 
 #[derive(Debug, Clone)]
 pub enum ConnectionData {
@@ -60,6 +67,7 @@ pub async fn connect(
     data: &ConnectionData,
     log_target: &str,
     endpoint_name: &str,
+    ban_list: &Arc<Mutex<HashMap<IpAddr, Instant>>>,
 ) -> Result<Connection> {
     Ok(match &data {
         ConnectionData::Inbound {
@@ -68,10 +76,15 @@ pub async fn connect(
         } => {
             info!(target: log_target, "Listening for '{}'", endpoint_name);
             let listener = listener_lock.lock().await;
-            let (stream, _) = listener.accept().await?;
+            let (stream, addr) = listener.accept().await?;
             drop(listener);
 
             let conn = if let Some(secret) = secret_option {
+                if let Some(&time) = ban_list.lock().await.get(&addr.ip()) {
+                    if time > Instant::now() {
+                        return Err(TunnelError::ConnAttemptFromBannedIP.into());
+                    }
+                }
                 debug!(target: log_target, "Initializing the tunnel");
                 Connection::Tunnel(Tunnel::init(stream, true, *secret).await?)
             } else {
@@ -101,9 +114,14 @@ pub async fn connect(
     })
 }
 
-pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: &str) {
+pub async fn start_connection(
+    a: ConnectionData,
+    b: ConnectionData,
+    log_target: &str,
+    ban_list: Arc<Mutex<HashMap<IpAddr, Instant>>>,
+) {
     loop {
-        let ts_a = match connect(&a, log_target, "Stream A").await {
+        let ts_a = match connect(&a, log_target, "Stream A", &ban_list).await {
             Ok(x) => x,
             Err(e) => {
                 if let Some(io_error) = e.downcast_ref::<std::io::Error>() {
@@ -117,20 +135,31 @@ pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: 
                         TunnelError::SecretRejected => {
                             error!(target: log_target, "{}: Sleeping for {:?}...", e, SECRET_REJECTED_TIMEOUT);
                             sleep(SECRET_REJECTED_TIMEOUT).await;
+                            continue;
                         }
                         TunnelError::NonceEarlyEOF => {
                             error!(target: log_target, "{}: Sleeping for {:?}...", e, NONCE_EARLY_EOF_TIMEOUT);
                             sleep(NONCE_EARLY_EOF_TIMEOUT).await;
+                            continue;
+                        }
+                        TunnelError::SecretMismatch(addr) | TunnelError::Timeout(addr) => {
+                            // Ban ip
+                            ban_list
+                                .lock()
+                                .await
+                                .insert(*addr, Instant::now() + BAN_LENGTH);
+                            info!(target: log_target, "{}: {} is banned for {:?}", e, addr, BAN_LENGTH);
+                            continue;
                         }
                         _ => {}
                     }
                 }
-                error!(target: log_target, "Couldn't get stream B: {}", e);
+                error!(target: log_target, "Couldn't get stream A: {}", e);
                 continue;
             }
         };
 
-        let ts_b = match connect(&b, log_target, "Stream B").await {
+        let ts_b = match connect(&b, log_target, "Stream B", &ban_list).await {
             Ok(x) => x,
             Err(e) => {
                 drop(ts_a);
@@ -150,6 +179,15 @@ pub async fn start_connection(a: ConnectionData, b: ConnectionData, log_target: 
                         TunnelError::NonceEarlyEOF => {
                             error!(target: log_target, "{}: Sleeping for {:?}...", e, NONCE_EARLY_EOF_TIMEOUT);
                             sleep(NONCE_EARLY_EOF_TIMEOUT).await;
+                            continue;
+                        }
+                        TunnelError::SecretMismatch(addr) | TunnelError::Timeout(addr) => {
+                            // Ban ip
+                            ban_list
+                                .lock()
+                                .await
+                                .insert(*addr, Instant::now() + BAN_LENGTH);
+                            info!(target: log_target, "{}: {} is banned for {:?}", e, addr, BAN_LENGTH);
                             continue;
                         }
                         _ => {}
