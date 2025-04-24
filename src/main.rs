@@ -1,5 +1,5 @@
 use anyhow::Result;
-use config::{Endpoint, Route, TunnelConfig};
+use config::{Endpoint, Route, VeloxidConfig};
 use connection::ConnectionData;
 use dashmap::DashMap;
 use error::ConfigError;
@@ -44,8 +44,8 @@ async fn build_conn_map(
 #[tokio::main]
 async fn main() -> Result<()> {
     // Config
-    let config_path = &std::env::var("TUNNEL_CONFIG").unwrap_or("Config.toml".to_owned());
-    let config = TunnelConfig::load(config_path)?;
+    let config_path = &std::env::var("VELOXID_CONFIG").unwrap_or("veloxid.toml".to_owned());
+    let config = VeloxidConfig::load(config_path)?;
 
     // Logging
     let log_level: LevelFilter = match config.log_level {

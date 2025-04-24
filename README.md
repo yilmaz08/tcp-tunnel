@@ -1,5 +1,5 @@
-# TCP Tunnel
-This is a work-in-progress TCP tunneling project.
+# Veloxid
+Veloxid is a fast, secure and flexible network tunneling tool.
 
 ## To-Do
 - [x] Stream cipher encryption
@@ -9,7 +9,7 @@ This is a work-in-progress TCP tunneling project.
 - [x] Abuse protection (ratelimit etc.)
 - [x] TOML config
 - [x] Multi-hop connections
-- [ ] UDP over TCP Tunnel
+- [ ] UDP support
 - [ ] Docker
 
 ## License
