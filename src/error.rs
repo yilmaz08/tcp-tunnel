@@ -3,10 +3,10 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum TunnelError {
     // Occurs on inbound tunnels and doesn't timeout
-    #[error("Secret Mismatch")]
+    #[error("Secret mismatch")]
     SecretMismatch(std::net::IpAddr),
     // Occurs on outbound tunnels and times out
-    #[error("Secret Mismatch")]
+    #[error("Secret rejected")]
     SecretRejected,
 
     #[error("Timed out")]
