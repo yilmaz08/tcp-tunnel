@@ -1,0 +1,44 @@
+# Log level
+# 0 -> Off 
+# 1 -> Error
+# 2 -> Warn
+# 3 -> Info (default)
+# 4 -> Debug
+# 5 -> Trace
+log_level = 3
+
+### ENDPOINTS ###
+[endpoints.server]
+port = 8888 # server is exposed at
+type = "direct"
+direction = "outbound"
+
+[endpoints.tunnel-in]
+port = 8080
+type = "tunnel"
+direction = "inbound"
+secret = "1234"
+
+[endpoints.tunnel-out]
+port = 8080
+type = "tunnel"
+direction = "outbound"
+secret = "1234"
+
+[endpoints.client]
+port = 8000 # client connects to
+type = "direct"
+direction = "inbound"
+
+### ROUTES ###
+# [[routes]] # Proxy
+# endpoints = ["client", "server"]
+# size = 5
+
+# [[routes]] # Relay
+# endpoints = ["tunnel-in", "client"]
+# size = 5
+
+# [[routes]] # Connector
+# endpoints = ["tunnel-out", "server"]
+# size = 5
