@@ -4,7 +4,6 @@ use chacha20::{
     cipher::{KeyIvInit, StreamCipher},
     ChaCha20,
 };
-use log::error;
 use tokio::{
     io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
     net::TcpStream,
@@ -24,15 +23,13 @@ pub struct Tunnel {
     secret: [u8; 32],
     tunnel_read: ReadHalf<TcpStream>,
     tunnel_write: WriteHalf<TcpStream>,
-    profile: bool,
+    is_inbound: bool,
 }
 
 impl Tunnel {
     // Initializes the tunnel
-    // 1- Nonce exchange
-    // 2- Authentication
-    pub async fn init(mut stream: TcpStream, profile: bool, secret: [u8; 32]) -> Result<Self> {
-        let nonce = match profile {
+    pub async fn init(mut stream: TcpStream, is_inbound: bool, secret: [u8; 32]) -> Result<Self> {
+        let nonce = match is_inbound {
             true => {
                 // Send Nonce
                 let nonce = super::encryption::generate_random_nonce();
@@ -90,38 +87,88 @@ impl Tunnel {
             secret,
             tunnel_read,
             tunnel_write,
-            profile,
+            is_inbound,
         })
     }
 
-    // Connect to separate tunnels to each other
-    // 1- Create ciphers (4 in total)
-    // 2- Start read_write function
-    pub async fn join(mut self, mut b: Tunnel) -> Result<()> {
-        let a_write = ChaCha20::new(&self.secret.into(), &self.nonce.into());
-        let a_read = ChaCha20::new(&self.secret.into(), &self.nonce.into());
-
-        let b_write = ChaCha20::new(&b.secret.into(), &b.nonce.into());
-        let b_read = ChaCha20::new(&b.secret.into(), &b.nonce.into());
-
-        if self.profile {
+    // Connect the tunnel to another tunnel
+    pub async fn join(mut self, mut other: Tunnel) -> Result<()> {
+        // Send starting byte for inbound tunnels
+        if self.is_inbound {
             self.tunnel_write.write_u8(1u8).await?;
         }
-        if b.profile {
-            b.tunnel_write.write_u8(1u8).await?;
+        if other.is_inbound {
+            other.tunnel_write.write_u8(1u8).await?;
         }
 
-        let mut a_to_b = task::spawn(Tunnel::read_write(
+        // Generate ciphers
+        let self_read_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());
+        let self_write_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());
+        let other_read_cipher = ChaCha20::new(&other.secret.into(), &other.nonce.into());
+        let other_write_cipher = ChaCha20::new(&other.secret.into(), &other.nonce.into());
+
+        // Spawn tasks
+        let mut self_to_other = task::spawn(Tunnel::read_write(
             self.tunnel_read,
-            b.tunnel_write,
-            vec![a_read, b_write],
+            other.tunnel_write,
+            vec![self_read_cipher, other_write_cipher],
+        ));
+        let mut other_to_self = task::spawn(Tunnel::read_write(
+            other.tunnel_read,
+            self.tunnel_write,
+            vec![other_read_cipher, self_write_cipher],
         ));
 
-        let mut b_to_a = task::spawn(Tunnel::read_write(
-            b.tunnel_read,
-            self.tunnel_write,
-            vec![b_read, a_write],
+        // Manage tasks
+        tokio::select! {
+            _ = &mut self_to_other => other_to_self.abort(),
+            _ = &mut other_to_self => self_to_other.abort()
+        }
+
+        Ok(())
+    }
+
+    // Connect the tunnel to a TcpStream
+    pub async fn run(mut self, stream: TcpStream) -> Result<()> {
+        // Send starting byte for inbound tunnels
+        if self.is_inbound {
+            self.tunnel_write.write_u8(1u8).await?;
+        }
+
+        let (target_read, target_write) = split(stream);
+
+        // Generate ciphers
+        let read_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());
+        let write_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());
+
+        // Spawn tasks
+        let mut tunnel_to_target = task::spawn(Tunnel::read_write(
+            self.tunnel_read,
+            target_write,
+            vec![read_cipher],
         ));
+        let mut target_to_tunnel = task::spawn(Tunnel::read_write(
+            target_read,
+            self.tunnel_write,
+            vec![write_cipher],
+        ));
+
+        // Manage tasks
+        tokio::select! {
+            _ = &mut tunnel_to_target => target_to_tunnel.abort(),
+            _ = &mut target_to_tunnel => tunnel_to_target.abort()
+        }
+
+        Ok(())
+    }
+
+    // Connect a TcpStream to another TcpStream
+    pub async fn proxy(a: TcpStream, b: TcpStream) -> Result<()> {
+        let (a_read, a_write) = split(a);
+        let (b_read, b_write) = split(b);
+
+        let mut a_to_b = tokio::task::spawn(Tunnel::read_write(a_read, b_write, vec![]));
+        let mut b_to_a = tokio::task::spawn(Tunnel::read_write(b_read, a_write, vec![]));
 
         tokio::select! {
             _ = &mut a_to_b => b_to_a.abort(),
@@ -131,62 +178,29 @@ impl Tunnel {
         Ok(())
     }
 
-    // Start data stream
-    // 1- Create ciphers
-    // 2- Start read_write function
-    pub async fn run(mut self, stream: TcpStream) -> Result<()> {
-        if self.profile {
-            self.tunnel_write.write_u8(1u8).await?;
-        }
-
-        let (target_read, target_write) = split(stream);
-
-        let tunnel_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());
-        let target_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());
-
-        let mut tunnel_to_target = task::spawn(Tunnel::read_write(
-            self.tunnel_read,
-            target_write,
-            vec![tunnel_cipher],
-        ));
-        let mut target_to_tunnel = task::spawn(Tunnel::read_write(
-            target_read,
-            self.tunnel_write,
-            vec![target_cipher],
-        ));
-
-        tokio::select! {
-            _ = &mut tunnel_to_target => target_to_tunnel.abort(),
-            _ = &mut target_to_tunnel => tunnel_to_target.abort()
-        }
-
-        Ok(())
-    }
-
     // Read from a stream and write to another
-    // 1- Read from the read half
-    // 2- Apply key streams
-    // 3- Write to the write half
     pub async fn read_write(
         mut read_stream: ReadHalf<TcpStream>,
         mut write_stream: WriteHalf<TcpStream>,
         mut ciphers: Vec<ChaCha20>,
-    ) {
-        let mut buffer = [0u8; 512];
+    ) -> Result<()> {
+        let mut buffer = vec![0u8; 8192];
         loop {
-            match read_stream.read(&mut buffer).await {
-                Ok(0) => break,
-                Err(e) => {
-                    error!("Failed to read from stream: {}", e);
-                    break;
-                }
-                Ok(n) => {
-                    for cipher in &mut ciphers {
-                        cipher.apply_keystream(&mut buffer[..n]);
-                    }
-                    let _ = write_stream.write_all(&buffer[..n]).await;
-                }
+            // Read
+            let n = read_stream.read(&mut buffer).await?;
+            if n == 0 {
+                // EOF
+                write_stream.shutdown().await?;
+                return Ok(());
             }
+
+            // Apply keystreams
+            for cipher in &mut ciphers {
+                cipher.apply_keystream(&mut buffer[..n]);
+            }
+
+            // Write
+            write_stream.write_all(&mut buffer[..n]).await?;
         }
     }
 }

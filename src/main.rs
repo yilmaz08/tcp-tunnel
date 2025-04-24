@@ -1,10 +1,15 @@
 use anyhow::Result;
-use config::{Endpoint, TunnelConfig};
+use config::{Endpoint, Route, TunnelConfig};
 use connection::ConnectionData;
-use error::TunnelError;
-use log::{warn, LevelFilter};
-use std::{collections::HashMap, net::IpAddr, sync::Arc};
-use tokio::{sync::Mutex, task, time::Instant};
+use dashmap::DashMap;
+use error::ConfigError;
+use futures::future::try_join_all;
+use log::{info, warn, LevelFilter};
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+};
+use tokio::{task, time::Instant};
 
 mod config;
 mod connection;
@@ -12,21 +17,28 @@ mod encryption;
 mod error;
 mod tunnel;
 
-async fn get_conndata_from_endpoint(
-    name: &str,
-    endpoint_conn_data: &mut HashMap<String, ConnectionData>,
-    endpoints: &HashMap<String, Endpoint>,
-) -> Result<ConnectionData> {
-    if let Some(conn_data) = endpoint_conn_data.get(name) {
-        return Ok(conn_data.clone());
+async fn build_conn_map(
+    routes: &[Route],
+    config_endpoints: &HashMap<String, Endpoint>,
+) -> Result<HashMap<String, ConnectionData>> {
+    // Get unique endpoint names
+    let mut names: HashSet<&str> = HashSet::new();
+    for route in routes {
+        names.extend(route.endpoints.iter().map(String::as_str));
     }
-    let endpoint = match endpoints.get(name) {
-        Some(x) => x,
-        None => return Err(TunnelError::EndpointNotFound.into()),
-    };
-    let conn_data = connection::get_connection_data(endpoint).await?;
-    endpoint_conn_data.insert(name.to_owned(), conn_data.clone());
-    Ok(conn_data)
+
+    // Get all connection data in parallel
+    let futures = names.iter().map(|&name| async move {
+        let endpoint = config_endpoints
+            .get(name)
+            .ok_or(ConfigError::EndpointNotFound)?;
+        let conn_data = connection::get_connection_data(endpoint).await?;
+        Ok::<_, anyhow::Error>((name.to_owned(), conn_data))
+    });
+
+    // Collect results
+    let results = try_join_all(futures).await?;
+    Ok(results.into_iter().collect())
 }
 
 #[tokio::main]
@@ -47,40 +59,33 @@ async fn main() -> Result<()> {
     env_logger::builder().filter_level(log_level).init();
 
     // Ban list
-    let ban_list = Arc::new(Mutex::new(HashMap::<IpAddr, Instant>::new()));
+    let ban_list: DashMap<IpAddr, Instant> = DashMap::new();
 
     // Connection
-    let mut endpoint_conn_data: HashMap<String, ConnectionData> = HashMap::new();
-    for (route_index, route) in config.routes.iter().enumerate() {
+    let endpoint_conn_data = build_conn_map(&config.routes, &config.endpoints).await?;
+    for (route_idx, route) in config.routes.iter().enumerate() {
         // Check if it is a RouteToSelf
-        if &route.endpoints[0] == &route.endpoints[1] {
-            return Err(TunnelError::RouteToSelf.into());
+        let [a, b] = &route.endpoints;
+        if a == b {
+            return Err(ConfigError::RouteToSelf.into());
         }
+
         // Get endpoint data
-        let endpoint_a = get_conndata_from_endpoint(
-            &route.endpoints[0],
-            &mut endpoint_conn_data,
-            &config.endpoints,
-        )
-        .await?;
-        let endpoint_b = get_conndata_from_endpoint(
-            &route.endpoints[1],
-            &mut endpoint_conn_data,
-            &config.endpoints,
-        )
-        .await?;
+        let endpoint_a = &endpoint_conn_data[a];
+        let endpoint_b = &endpoint_conn_data[b];
+
         // Generate worker tasks
-        for conn_index in 0..route.size {
+        for worker_idx in 0..route.size {
             task::spawn({
                 let endpoint_a = endpoint_a.clone();
                 let endpoint_b = endpoint_b.clone();
                 let ban_list = ban_list.clone();
                 async move {
-                    connection::start_connection(
+                    connection::route(
                         endpoint_a,
                         endpoint_b,
-                        &format!("route #{} worker #{}", route_index, conn_index),
                         ban_list,
+                        &format!("route #{} worker #{}", route_idx, worker_idx),
                     )
                     .await;
                 }
@@ -95,6 +100,8 @@ async fn main() -> Result<()> {
         }
     }
 
-    std::thread::park();
+    // Wait for Ctrl+C
+    tokio::signal::ctrl_c().await?;
+    info!("Shutting down...");
     Ok(())
 }

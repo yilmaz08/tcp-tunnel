@@ -15,7 +15,12 @@ pub enum TunnelError {
     #[error("Early EOF in nonce exchange (possible ban)")]
     NonceEarlyEOF,
 
-    // Config Errors
+    #[error("Connection attempt from banned IP")]
+    ConnAttemptFromBannedIP,
+}
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
     #[error("Endpoint wasn't not found")]
     EndpointNotFound,
 
@@ -24,7 +29,4 @@ pub enum TunnelError {
 
     #[error("Every tunnel requires a secret")]
     NoSecret,
-
-    #[error("Connection attempt from banned IP")]
-    ConnAttemptFromBannedIP,
 }
