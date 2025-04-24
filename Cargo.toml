@@ -1,8 +1,10 @@
 [package]
-name = "tcp-tunnel"
-version = "0.1.0"
+name = "veloxid"
+version = "1.0.0"
 edition = "2021"
 authors = ["Abdürrahim YILMAZ <ayilmaz@ayilmaz.xyz>"]
+description = "Fast, secure and flexible network tunneling tool"
+license = "MIT"
 
 [dependencies]
 anyhow = "1.0.93"

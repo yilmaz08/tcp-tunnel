@@ -17,7 +17,7 @@ pub enum Direction {
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub struct TunnelConfig {
+pub struct VeloxidConfig {
     pub routes: Vec<Route>,
     pub endpoints: HashMap<String, Endpoint>,
     pub log_level: Option<u8>,
@@ -39,7 +39,7 @@ pub struct Route {
     pub size: usize,
 }
 
-impl TunnelConfig {
+impl VeloxidConfig {
     pub fn load(file_path: &str) -> Result<Self> {
         let file_content = fs::read_to_string(file_path)?;
         Ok(toml::from_str(&file_content)?)
