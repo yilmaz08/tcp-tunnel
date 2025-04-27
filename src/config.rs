@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::{collections::HashMap, fs, net::IpAddr};
+use std::{collections::HashMap, fs};
 use toml;
 
 #[derive(Debug, serde::Deserialize)]
@@ -25,7 +25,7 @@ pub struct VeloxidConfig {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Endpoint {
-    pub ip: Option<IpAddr>,
+    pub host: Option<String>,
     pub port: u16,
     #[serde(rename = "type")]
     pub kind: ConnectionType,
