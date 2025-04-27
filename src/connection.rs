@@ -4,11 +4,11 @@ use crate::{
     error::{ConfigError, TunnelError},
     tunnel::Tunnel,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use dashmap::DashMap;
 use log::{debug, error, info};
 use std::{
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
     sync::Arc,
 };
 use tokio::{
@@ -40,7 +40,11 @@ pub enum Connection {
 
 // Gets endpoint and returns ConnectionData
 pub async fn get_connection_data(endpoint: &Endpoint) -> Result<ConnectionData> {
-    let addr = SocketAddr::new(endpoint.ip.unwrap_or("0.0.0.0".parse()?), endpoint.port);
+    let addr_str = format!("{}:{}", endpoint.host.clone().unwrap_or("0.0.0.0".to_owned()), endpoint.port);
+    let addr = match addr_str.to_socket_addrs()?.next() {
+        Some(a) => a,
+        None => return Err(anyhow!("Couldn't resolve address!"))
+    };
 
     let secret_option = match endpoint.kind {
         ConnectionType::Tunnel => match &endpoint.secret {

@@ -9,8 +9,8 @@ Veloxid is a fast, secure and flexible network tunneling tool.
 - [x] Abuse protection (ratelimit etc.)
 - [x] TOML config
 - [x] Multi-hop connections
+- [x] Docker
 - [ ] UDP support
-- [ ] Docker
 
 ## License
 MIT
