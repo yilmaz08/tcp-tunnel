@@ -1,0 +1,12 @@
+# To-Do
+- [x] Stream cipher encryption
+- [x] Handle multiple streams
+- [x] Detailed logging
+- [x] Better error handling
+- [x] Abuse protection (ratelimit etc.)
+- [x] TOML config
+- [x] Multi-hop connections
+- [x] Docker
+- [ ] UDP support
+- [ ] Load balancing
+- [ ] Bandwidth limiting
