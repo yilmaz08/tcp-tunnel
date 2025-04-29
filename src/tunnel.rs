@@ -21,8 +21,7 @@ const NONCE_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct Tunnel {
     nonce: [u8; 12],
     secret: [u8; 32],
-    tunnel_read: ReadHalf<TcpStream>,
-    tunnel_write: WriteHalf<TcpStream>,
+    pub stream: TcpStream,
     is_inbound: bool,
 }
 
@@ -81,24 +80,26 @@ impl Tunnel {
             }
         };
 
-        let (tunnel_read, tunnel_write) = split(stream);
         Ok(Self {
             nonce,
             secret,
-            tunnel_read,
-            tunnel_write,
+            stream,
             is_inbound,
         })
     }
 
     // Connect the tunnel to another tunnel
-    pub async fn join(mut self, mut other: Tunnel) -> Result<()> {
+    pub async fn join(self, other: Tunnel) -> Result<()> {
+        // Split streams
+        let (self_read, mut self_write) = split(self.stream);
+        let (other_read, mut other_write) = split(other.stream);
+
         // Send starting byte for inbound tunnels
         if self.is_inbound {
-            self.tunnel_write.write_u8(1u8).await?;
+            self_write.write_u8(1u8).await?;
         }
         if other.is_inbound {
-            other.tunnel_write.write_u8(1u8).await?;
+            other_write.write_u8(1u8).await?;
         }
 
         // Generate ciphers
@@ -109,13 +110,13 @@ impl Tunnel {
 
         // Spawn tasks
         let mut self_to_other = task::spawn(Tunnel::read_write(
-            self.tunnel_read,
-            other.tunnel_write,
+            self_read,
+            other_write,
             vec![self_read_cipher, other_write_cipher],
         ));
         let mut other_to_self = task::spawn(Tunnel::read_write(
-            other.tunnel_read,
-            self.tunnel_write,
+            other_read,
+            self_write,
             vec![other_read_cipher, self_write_cipher],
         ));
 
@@ -129,13 +130,15 @@ impl Tunnel {
     }
 
     // Connect the tunnel to a TcpStream
-    pub async fn run(mut self, stream: TcpStream) -> Result<()> {
+    pub async fn run(self, stream: TcpStream) -> Result<()> {
+        // Split streams
+        let (tunnel_read, mut tunnel_write) = split(self.stream);
+        let (target_read, target_write) = split(stream);
+
         // Send starting byte for inbound tunnels
         if self.is_inbound {
-            self.tunnel_write.write_u8(1u8).await?;
+            tunnel_write.write_u8(1u8).await?;
         }
-
-        let (target_read, target_write) = split(stream);
 
         // Generate ciphers
         let read_cipher = ChaCha20::new(&self.secret.into(), &self.nonce.into());
@@ -143,13 +146,13 @@ impl Tunnel {
 
         // Spawn tasks
         let mut tunnel_to_target = task::spawn(Tunnel::read_write(
-            self.tunnel_read,
+            tunnel_read,
             target_write,
             vec![read_cipher],
         ));
         let mut target_to_tunnel = task::spawn(Tunnel::read_write(
             target_read,
-            self.tunnel_write,
+            tunnel_write,
             vec![write_cipher],
         ));
 
