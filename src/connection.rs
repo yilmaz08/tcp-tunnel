@@ -40,10 +40,14 @@ pub enum Connection {
 
 // Gets endpoint and returns ConnectionData
 pub async fn get_connection_data(endpoint: &Endpoint) -> Result<ConnectionData> {
-    let addr_str = format!("{}:{}", endpoint.host.clone().unwrap_or("0.0.0.0".to_owned()), endpoint.port);
+    let addr_str = format!(
+        "{}:{}",
+        endpoint.host.clone().unwrap_or("0.0.0.0".to_owned()),
+        endpoint.port
+    );
     let addr = match addr_str.to_socket_addrs()?.next() {
         Some(a) => a,
-        None => return Err(anyhow!("Couldn't resolve address!"))
+        None => return Err(anyhow!("Couldn't resolve address!")),
     };
 
     let secret_option = match endpoint.kind {
@@ -158,6 +162,21 @@ async fn handle_connection_error(
     error!(target: log_target, "Connection '{}' failed: {}", endpoint_name, error);
 }
 
+// Detect if stream exits without writing anything
+async fn watch_stream(conn: &Connection) -> bool {
+    let stream = match conn {
+        Connection::Tunnel(tunnel) => &tunnel.stream,
+        Connection::Direct(stream) => stream,
+    };
+
+    let mut buffer = vec![0u8; 1];
+    match stream.peek(&mut buffer).await {
+        Ok(0) => true,  // EOF
+        Err(_) => true, // Error
+        Ok(_) => false, // Anything is written
+    }
+}
+
 pub async fn route(
     endpoint_a: ConnectionData,
     endpoint_b: ConnectionData,
@@ -172,7 +191,17 @@ pub async fn route(
                 continue;
             }
         };
-        let conn_b = match connect(&endpoint_b, &ban_list, log_target, "B").await {
+
+        // Either Conn A exits or Conn B connects
+        let conn_b_result = tokio::select! {
+            true = watch_stream(&conn_a) => {
+                log::info!(target: log_target, "'{}' exited before '{}' is established!", "A", "B");
+                continue;
+            }
+            conn_b_result = connect(&endpoint_b, &ban_list, log_target, "B") => conn_b_result
+        };
+
+        let conn_b = match conn_b_result {
             Ok(conn) => conn,
             Err(e) => {
                 drop(conn_a);

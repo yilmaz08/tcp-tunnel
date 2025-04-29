@@ -21,7 +21,7 @@ const NONCE_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct Tunnel {
     nonce: [u8; 12],
     secret: [u8; 32],
-    stream: TcpStream,
+    pub stream: TcpStream,
     is_inbound: bool,
 }
 
