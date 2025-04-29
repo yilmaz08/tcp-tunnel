@@ -1,6 +1,6 @@
 [package]
 name = "veloxid"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 authors = ["Abdürrahim YILMAZ <ayilmaz@ayilmaz.xyz>"]
 description = "Fast, secure and flexible network tunneling tool"
