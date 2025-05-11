@@ -9,7 +9,7 @@ use dashmap::DashMap;
 use log::{debug, error, info};
 use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs},
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -181,9 +181,10 @@ pub async fn route(
     endpoint_a: ConnectionData,
     endpoint_b: ConnectionData,
     ban_list: DashMap<IpAddr, Instant>,
+    shutdown_bool: Arc<AtomicBool>,
     log_target: &str,
 ) {
-    loop {
+    while shutdown_bool.load(std::sync::atomic::Ordering::Relaxed) {
         let conn_a = match connect(&endpoint_a, &ban_list, log_target, "A").await {
             Ok(conn) => conn,
             Err(e) => {
@@ -222,4 +223,5 @@ pub async fn route(
             error!(target: log_target, "Route failed: {}", e);
         }
     }
+    info!(target: log_target, "Route exited!");
 }
