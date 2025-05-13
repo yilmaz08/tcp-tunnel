@@ -180,7 +180,7 @@ async fn watch_stream(conn: &Connection) -> bool {
 pub async fn route(
     endpoint_a: ConnectionData,
     endpoint_b: ConnectionData,
-    ban_list: DashMap<IpAddr, Instant>,
+    ban_list: Arc<DashMap<IpAddr, Instant>>,
     log_target: &str,
 ) {
     loop {

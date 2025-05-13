@@ -7,7 +7,7 @@ use futures::future::try_join_all;
 use log::{info, warn, LevelFilter};
 use std::{
     collections::{HashMap, HashSet},
-    net::IpAddr,
+    net::IpAddr, sync::Arc,
 };
 use tokio::{task, time::Instant};
 
@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
     env_logger::builder().filter_level(log_level).init();
 
     // Ban list
-    let ban_list: DashMap<IpAddr, Instant> = DashMap::new();
+    let ban_list: Arc<DashMap<IpAddr, Instant>> = Arc::new(DashMap::new());
 
     // Connection
     let endpoint_conn_data = build_conn_map(&config.routes, &config.endpoints).await?;
